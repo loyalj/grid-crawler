@@ -1,0 +1,44 @@
+appId: com.gridcrawler.app
+productName: Grid Crawler
+directories:
+  buildResources: build
+  output: dist
+files:
+  - out/**/*
+
+win:
+  executableName: grid-crawler
+  target:
+    - target: nsis
+      arch:
+        - x64
+nsis:
+  artifactName: ${name}-${version}-setup.${ext}
+  shortcutName: ${productName}
+  uninstallDisplayName: ${productName}
+  createDesktopShortcut: always
+
+mac:
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+  notarize: false
+dmg:
+  artifactName: ${name}-${version}.${ext}
+
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+  category: Utility
+appImage:
+  artifactName: ${name}-${version}.${ext}
+
+# Update publish.owner and publish.repo before releasing
+publish:
+  provider: github
+  owner: loyalj
+  repo: grid-crawler
