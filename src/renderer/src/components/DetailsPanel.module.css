@@ -1,0 +1,49 @@
+.panel {
+  height: 100%;
+  overflow-y: auto;
+}
+
+.header {
+  padding: 8px 10px 6px;
+  border-bottom: 1px solid var(--mantine-color-dark-4);
+}
+
+.title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--mantine-color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sectionLabel {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--mantine-color-dimmed);
+  margin-bottom: 5px;
+}
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.rowLabel {
+  font-size: 11px;
+  color: var(--mantine-color-dimmed);
+  flex-shrink: 0;
+}
+
+.rowValue {
+  font-size: 11px;
+  color: var(--mantine-color-text);
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

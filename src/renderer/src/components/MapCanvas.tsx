@@ -1,18 +1,18 @@
 import { useEffect, useRef } from 'react'
 import { MapRenderer } from '../engine/MapRenderer'
+import { InputManager } from '../engine/InputManager'
 import { useMapStore } from '../store/mapStore'
 
 export function MapCanvas() {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const canvasRef    = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
-  const rendererRef = useRef<MapRenderer | null>(null)
+  const rendererRef  = useRef<MapRenderer | null>(null)
+  const inputRef     = useRef<InputManager | null>(null)
 
-  const project = useMapStore((s) => s.project)
+  const project       = useMapStore((s) => s.project)
   const activeLevelId = useMapStore((s) => s.activeLevelId)
-  const viewMode = useMapStore((s) => s.viewMode)
-  const activeTool = useMapStore((s) => s.activeTool)
-  const paintCell = useMapStore((s) => s.paintCell)
-  const eraseCell = useMapStore((s) => s.eraseCell)
+  const viewMode      = useMapStore((s) => s.viewMode)
+  const selectedId    = useMapStore((s) => s.selectedId)
 
   const activeLevel = useMapStore((s) => {
     const { project, activeLevelId } = s
@@ -21,15 +21,19 @@ export function MapCanvas() {
     return project.dungeonLevels.find((l) => l.id === activeLevelId) ?? null
   })
 
-  // Mount renderer once
+  // Mount renderer + input manager once
   useEffect(() => {
     if (!canvasRef.current) return
-    const r = new MapRenderer(canvasRef.current)
-    rendererRef.current = r
-    r.setViewMode('topdown')
+    const renderer = new MapRenderer(canvasRef.current)
+    const input    = new InputManager(canvasRef.current, renderer)
+    rendererRef.current = renderer
+    inputRef.current    = input
+    renderer.setViewMode('topdown')
     return () => {
-      r.dispose()
+      input.dispose()
+      renderer.dispose()
       rendererRef.current = null
+      inputRef.current    = null
     }
   }, [])
 
@@ -49,24 +53,24 @@ export function MapCanvas() {
   useEffect(() => {
     rendererRef.current?.setViewMode(
       viewMode,
-      activeLevel?.grid.width ?? 48,
-      activeLevel?.grid.height ?? 48
+      activeLevel?.settings.gridWidth  ?? 48,
+      activeLevel?.settings.gridHeight ?? 48
     )
   }, [viewMode]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Grid changes
+  // Level data changes → full re-render
   useEffect(() => {
     if (!activeLevel) return
-    rendererRef.current?.loadGrid(activeLevel.grid)
+    rendererRef.current?.loadLevel(activeLevel)
+    // Re-apply selection overlay after re-render
+    const { selectedId } = useMapStore.getState()
+    rendererRef.current?.setSelection(selectedId)
   }, [activeLevel])
 
-  // Tool handler
+  // Selection changes (from tree nav, keyboard, etc.) → sync renderer
   useEffect(() => {
-    rendererRef.current?.setOnCellInteract((x, y) => {
-      if (activeTool === 'paint') paintCell(x, y)
-      else if (activeTool === 'erase') eraseCell(x, y)
-    })
-  }, [activeTool, paintCell, eraseCell])
+    rendererRef.current?.setSelection(selectedId)
+  }, [selectedId])
 
   return (
     <div ref={containerRef} className="canvas-container">

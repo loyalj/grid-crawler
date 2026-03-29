@@ -1,82 +1,117 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { Modal, TextInput, NumberInput, Group, Button, Stack } from '@mantine/core'
 import { MapCanvas } from './components/MapCanvas'
 import { Toolbar } from './components/Toolbar'
-import { LevelPanel } from './components/LevelPanel'
+import { LevelNav } from './components/LevelNav'
+import { DetailsPanel } from './components/DetailsPanel'
 import { useMapStore } from './store/mapStore'
 
 export default function App() {
-  const project = useMapStore((s) => s.project)
-  const isDirty = useMapStore((s) => s.isDirty)
-  const newProject = useMapStore((s) => s.newProject)
+  const project     = useMapStore((s) => s.project)
+  const isDirty     = useMapStore((s) => s.isDirty)
+  const newProject  = useMapStore((s) => s.newProject)
+  const setViewMode = useMapStore((s) => s.setViewMode)
 
-  const [showNewDialog, setShowNewDialog] = useState(false)
-  const [newMapName, setNewMapName] = useState('')
+  const [showNew, setShowNew]     = useState(false)
+  const [mapName, setMapName]     = useState('')
+  const [mapWidth, setMapWidth]   = useState<number>(32)
+  const [mapHeight, setMapHeight] = useState<number>(32)
 
   const handleCreate = () => {
-    const name = newMapName.trim()
+    const name = mapName.trim()
     if (!name) return
-    newProject(name)
-    setShowNewDialog(false)
-    setNewMapName('')
+    newProject(name, mapWidth, mapHeight)
+    setShowNew(false)
+    setMapName('')
   }
 
-  const handleOpenNewDialog = () => {
+  const openNew = () => {
     if (isDirty && !confirm('Unsaved changes will be lost. Continue?')) return
-    setNewMapName('')
-    setShowNewDialog(true)
+    setMapName('')
+    setShowNew(true)
   }
+
+  useEffect(() => {
+    window.electronAPI.setTitle(project ? `Grid Crawler - ${project.name}` : 'Grid Crawler')
+  }, [project?.name])
+
+  useEffect(() => {
+    const handler = (action: string) => {
+      switch (action) {
+        case 'file:new':       openNew();                  break
+        case 'file:open':                                  break
+        case 'file:save':                                  break
+        case 'file:saveAs':                                break
+        case 'file:exportPdf':                             break
+        case 'view:topdown':   setViewMode('topdown');     break
+        case 'view:isometric': setViewMode('isometric');   break
+        case 'view:fps':       setViewMode('fps');         break
+      }
+    }
+    window.electronAPI.onMenuAction(handler)
+    return () => window.electronAPI.offMenuAction(handler)
+  }, [isDirty, newProject, setViewMode])
 
   return (
     <div className="app">
-      <header className="app-header">
-        <span className="app-title">Grid Crawler</span>
-        <span className="project-label">
-          {project ? `${project.name}${isDirty ? ' ●' : ''}` : 'No map open'}
-        </span>
-        <nav className="app-nav">
-          <button onClick={handleOpenNewDialog}>New Map</button>
-          <button disabled={!project} title="Open .map file">Open</button>
-          <button disabled={!project || !isDirty} title="Save .map file">Save</button>
-          <button disabled={!project} title="Export as PDF">Export PDF</button>
-        </nav>
-      </header>
-
       <div className="app-body">
         <aside className="sidebar-left">
-          <LevelPanel />
+          <LevelNav />
         </aside>
 
-        <main className="canvas-area">
-          <MapCanvas />
-        </main>
-
-        <aside className="sidebar-right">
+        <div className="main-column">
           <Toolbar />
-        </aside>
-      </div>
 
-      {showNewDialog && (
-        <div className="dialog-overlay" onClick={() => setShowNewDialog(false)}>
-          <div className="dialog" onClick={(e) => e.stopPropagation()}>
-            <h2>New Map</h2>
-            <label>Map name</label>
-            <input
-              type="text"
-              placeholder="e.g. The Sunken Citadel"
-              value={newMapName}
-              onChange={(e) => setNewMapName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
-              autoFocus
-            />
-            <div className="dialog-actions">
-              <button onClick={() => setShowNewDialog(false)}>Cancel</button>
-              <button className="btn-primary" onClick={handleCreate} disabled={!newMapName.trim()}>
-                Create
-              </button>
-            </div>
+          <div className="content-row">
+            <main className="canvas-area">
+              <MapCanvas />
+            </main>
+
+            <aside className="sidebar-right">
+              <DetailsPanel />
+            </aside>
           </div>
         </div>
-      )}
+      </div>
+
+      <Modal
+        opened={showNew}
+        onClose={() => setShowNew(false)}
+        title="New Map"
+        centered
+        size="sm"
+      >
+        <Stack gap="sm">
+          <TextInput
+            label="Map name"
+            placeholder="e.g. The Sunken Citadel"
+            value={mapName}
+            onChange={(e) => setMapName(e.currentTarget.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
+            data-autofocus
+          />
+          <Group grow>
+            <NumberInput
+              label="Width (cells)"
+              min={4}
+              max={256}
+              value={mapWidth}
+              onChange={(v) => setMapWidth(typeof v === 'number' ? v : 32)}
+            />
+            <NumberInput
+              label="Height (cells)"
+              min={4}
+              max={256}
+              value={mapHeight}
+              onChange={(v) => setMapHeight(typeof v === 'number' ? v : 32)}
+            />
+          </Group>
+          <Group justify="flex-end" mt="xs">
+            <Button variant="default" onClick={() => setShowNew(false)}>Cancel</Button>
+            <Button onClick={handleCreate} disabled={!mapName.trim()}>Create</Button>
+          </Group>
+        </Stack>
+      </Modal>
     </div>
   )
 }

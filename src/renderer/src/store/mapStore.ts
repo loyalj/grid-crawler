@@ -1,170 +1,222 @@
 import { create } from 'zustand'
-import { MapProject, Level, CellType, Grid } from '../types/map'
+import { MapProject, Level, LevelSettings, DEFAULT_SETTINGS } from '../types/map'
+import { Command } from '../types/commands'
+import { AddLevelCommand, RemoveLevelCommand } from '../engine/commands'
 
-export type ViewMode = 'topdown' | 'isometric' | 'fps'
-export type EditorTool = 'paint' | 'erase' | 'select' | 'fill'
+export type ViewMode  = 'topdown' | 'isometric' | 'fps'
+export type EditorTool = 'room' | 'hallway' | 'select' | 'delete'
 
-function createEmptyGrid(width: number, height: number): Grid {
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
+function createLevel(name: string, depth: number, settings: LevelSettings): Level {
   return {
-    width,
-    height,
-    cells: Array.from({ length: height }, () =>
-      Array.from({ length: width }, () => ({ type: 'empty' as CellType }))
-    )
-  }
-}
-
-function createNewLevel(name: string, depth: number): Level {
-  return {
-    id: crypto.randomUUID(),
+    id:         crypto.randomUUID(),
     name,
     depth,
-    metadata: {},
-    grid: createEmptyGrid(48, 48),
-    rooms: [],
-    hallways: [],
+    settings,
+    rooms:      [],
+    hallways:   [],
     placements: []
   }
 }
 
-function createNewProject(name: string): MapProject {
+function createProject(name: string, width: number, height: number): MapProject {
   const now = new Date().toISOString()
+  const settings: LevelSettings = { ...DEFAULT_SETTINGS, gridWidth: width, gridHeight: height }
   return {
-    id: crypto.randomUUID(),
+    id:            crypto.randomUUID(),
     name,
-    version: '1.0.0',
-    createdAt: now,
-    updatedAt: now,
-    metadata: {},
-    catalog: { items: [], entities: [] },
-    overworld: createNewLevel('Overworld', 0),
-    dungeonLevels: [createNewLevel('Level 1', 1)]
+    version:       '1.0.0',
+    createdAt:     now,
+    updatedAt:     now,
+    metadata:      {},
+    catalog:       { items: [], entities: [] },
+    overworld:     createLevel('Overworld', 0, settings),
+    dungeonLevels: [createLevel('Level 1',  1, settings)]
   }
 }
 
-interface MapStore {
-  project: MapProject | null
-  isDirty: boolean
-  activeLevelId: string | null
-  viewMode: ViewMode
-  activeTool: EditorTool
-  activeCellType: CellType
+function allLevelIds(project: MapProject): string[] {
+  return [project.overworld.id, ...project.dungeonLevels.map((l) => l.id)]
+}
 
-  // Project
-  newProject: (name: string) => void
+// ── Store interface ────────────────────────────────────────────────────────────
+
+interface MapStore {
+  // Document
+  project:       MapProject | null
+  isDirty:       boolean
+  activeLevelId: string | null
+  undoStack:     Command[]
+  redoStack:     Command[]
+
+  // Editor UI (reactive for toolbar etc.)
+  viewMode:   ViewMode
+  activeTool: EditorTool
+  selectedId: string | null  // selected room or hallway id
+  canUndo:    boolean
+  canRedo:    boolean
+
+  // Project lifecycle
+  newProject: (name: string, width: number, height: number) => void
   setProject: (project: MapProject) => void
 
   // Navigation
   setActiveLevel: (levelId: string) => void
-  setViewMode: (mode: ViewMode) => void
+  setViewMode:    (mode: ViewMode) => void
 
-  // Tool selection
+  // Tool + selection
   setActiveTool: (tool: EditorTool) => void
-  setActiveCellType: (type: CellType) => void
+  setSelected:   (id: string | null) => void
 
-  // Cell editing
-  paintCell: (x: number, y: number) => void
-  eraseCell: (x: number, y: number) => void
+  // Command dispatch — the single mutation entry point for content edits
+  dispatch: (command: Command) => void
+  undo:     () => void
+  redo:     () => void
 
-  // Level management
-  addDungeonLevel: () => void
+  // Level management (structural; goes through dispatch for undo support)
+  addDungeonLevel:    () => void
   removeDungeonLevel: (levelId: string) => void
 }
 
-export const useMapStore = create<MapStore>((set, get) => ({
-  project: null,
-  isDirty: false,
-  activeLevelId: null,
-  viewMode: 'topdown',
-  activeTool: 'paint',
-  activeCellType: 'floor',
+// ── Store ──────────────────────────────────────────────────────────────────────
 
-  newProject: (name) => {
-    const project = createNewProject(name)
-    set({ project, isDirty: false, activeLevelId: project.overworld.id })
+export const useMapStore = create<MapStore>((set, get) => ({
+  project:       null,
+  isDirty:       false,
+  activeLevelId: null,
+  undoStack:     [],
+  redoStack:     [],
+
+  viewMode:   'topdown',
+  activeTool: 'select',
+  selectedId: null,
+  canUndo:    false,
+  canRedo:    false,
+
+  // ── Project lifecycle ────────────────────────────────────────────────────────
+
+  newProject: (name, width, height) => {
+    const project = createProject(name, width, height)
+    set({
+      project,
+      isDirty:       false,
+      activeLevelId: project.overworld.id,
+      undoStack:     [],
+      redoStack:     [],
+      canUndo:       false,
+      canRedo:       false,
+      selectedId:    null
+    })
   },
 
   setProject: (project) => {
-    set({ project, isDirty: false, activeLevelId: project.overworld.id })
+    set({
+      project,
+      isDirty:       false,
+      activeLevelId: project.overworld.id,
+      undoStack:     [],
+      redoStack:     [],
+      canUndo:       false,
+      canRedo:       false,
+      selectedId:    null
+    })
   },
 
-  setActiveLevel: (activeLevelId) => set({ activeLevelId }),
-  setViewMode: (viewMode) => set({ viewMode }),
+  // ── Navigation ───────────────────────────────────────────────────────────────
+
+  setActiveLevel: (activeLevelId) => set({ activeLevelId, selectedId: null }),
+  setViewMode:    (viewMode) => set({ viewMode }),
+
+  // ── Tool + selection ─────────────────────────────────────────────────────────
+
   setActiveTool: (activeTool) => set({ activeTool }),
-  setActiveCellType: (activeCellType) => set({ activeCellType }),
+  setSelected:   (selectedId) => set({ selectedId }),
 
-  paintCell: (x, y) => {
-    const { project, activeLevelId, activeCellType } = get()
-    if (!project || !activeLevelId) return
+  // ── Command dispatch ─────────────────────────────────────────────────────────
 
-    const applyToLevel = (level: Level): Level => {
-      if (level.id !== activeLevelId) return level
-      if (x < 0 || y < 0 || x >= level.grid.width || y >= level.grid.height) return level
-      const newCells = level.grid.cells.map((row, ry) =>
-        row.map((cell, rx) =>
-          rx === x && ry === y ? { ...cell, type: activeCellType } : cell
-        )
-      )
-      return { ...level, grid: { ...level.grid, cells: newCells } }
-    }
-
+  dispatch: (command) => {
+    const { project, undoStack } = get()
+    if (!project) return
+    const newProject  = command.execute(project)
+    const newUndoStack = [...undoStack, command]
     set({
-      project: {
-        ...project,
-        updatedAt: new Date().toISOString(),
-        overworld: applyToLevel(project.overworld),
-        dungeonLevels: project.dungeonLevels.map(applyToLevel)
-      },
-      isDirty: true
+      project:   newProject,
+      isDirty:   true,
+      undoStack: newUndoStack,
+      redoStack: [],
+      canUndo:   true,
+      canRedo:   false
     })
   },
 
-  eraseCell: (x, y) => {
-    const { project, activeLevelId } = get()
-    if (!project || !activeLevelId) return
+  undo: () => {
+    const { project, undoStack, redoStack } = get()
+    if (!project || undoStack.length === 0) return
 
-    const applyToLevel = (level: Level): Level => {
-      if (level.id !== activeLevelId) return level
-      if (x < 0 || y < 0 || x >= level.grid.width || y >= level.grid.height) return level
-      const newCells = level.grid.cells.map((row, ry) =>
-        row.map((cell, rx) =>
-          rx === x && ry === y ? { ...cell, type: 'empty' as CellType } : cell
-        )
-      )
-      return { ...level, grid: { ...level.grid, cells: newCells } }
-    }
+    const command      = undoStack[undoStack.length - 1]
+    const newProject   = command.undo(project)
+    const newUndoStack = undoStack.slice(0, -1)
+    const newRedoStack = [...redoStack, command]
+
+    // If the active level was removed by this undo, fall back to overworld
+    const { activeLevelId } = get()
+    const ids = allLevelIds(newProject)
+    const nextActiveLevelId = ids.includes(activeLevelId ?? '') ? activeLevelId : newProject.overworld.id
 
     set({
-      project: {
-        ...project,
-        updatedAt: new Date().toISOString(),
-        overworld: applyToLevel(project.overworld),
-        dungeonLevels: project.dungeonLevels.map(applyToLevel)
-      },
-      isDirty: true
+      project:       newProject,
+      isDirty:       true,
+      undoStack:     newUndoStack,
+      redoStack:     newRedoStack,
+      canUndo:       newUndoStack.length > 0,
+      canRedo:       true,
+      activeLevelId: nextActiveLevelId
     })
   },
+
+  redo: () => {
+    const { project, undoStack, redoStack } = get()
+    if (!project || redoStack.length === 0) return
+
+    const command      = redoStack[redoStack.length - 1]
+    const newProject   = command.execute(project)
+    const newUndoStack = [...undoStack, command]
+    const newRedoStack = redoStack.slice(0, -1)
+
+    const { activeLevelId } = get()
+    const ids = allLevelIds(newProject)
+    const nextActiveLevelId = ids.includes(activeLevelId ?? '') ? activeLevelId : newProject.overworld.id
+
+    set({
+      project:       newProject,
+      isDirty:       true,
+      undoStack:     newUndoStack,
+      redoStack:     newRedoStack,
+      canUndo:       true,
+      canRedo:       newRedoStack.length > 0,
+      activeLevelId: nextActiveLevelId
+    })
+  },
+
+  // ── Level management ─────────────────────────────────────────────────────────
 
   addDungeonLevel: () => {
-    const { project } = get()
+    const { project, dispatch } = get()
     if (!project) return
-    const depth = project.dungeonLevels.length + 1
-    const newLevel = createNewLevel(`Level ${depth}`, depth)
-    set({
-      project: { ...project, dungeonLevels: [...project.dungeonLevels, newLevel] },
-      activeLevelId: newLevel.id,
-      isDirty: true
-    })
+    const depth   = project.dungeonLevels.length + 1
+    const newLevel = createLevel(`Level ${depth}`, depth, { ...project.overworld.settings })
+    dispatch(new AddLevelCommand(newLevel))
+    // Set navigation after dispatch so the new level is active
+    set({ activeLevelId: newLevel.id })
   },
 
   removeDungeonLevel: (levelId) => {
-    const { project, activeLevelId } = get()
+    const { project, activeLevelId, dispatch } = get()
     if (!project) return
-    const remaining = project.dungeonLevels.filter((l) => l.id !== levelId)
-    set({
-      project: { ...project, dungeonLevels: remaining },
-      activeLevelId: activeLevelId === levelId ? project.overworld.id : activeLevelId,
-      isDirty: true
-    })
+    const index = project.dungeonLevels.findIndex((l) => l.id === levelId)
+    if (index === -1) return
+    dispatch(new RemoveLevelCommand(project.dungeonLevels[index], index))
+    if (activeLevelId === levelId) set({ activeLevelId: project.overworld.id })
   }
 }))

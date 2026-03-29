@@ -1,0 +1,173 @@
+.nav {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 8px 8px 6px;
+  border-bottom: 1px solid var(--mantine-color-dark-4);
+  flex-shrink: 0;
+}
+
+.projectName {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--mantine-color-yellow-4);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+/* ── Tree ──────────────────────────────────────────────────────────────────── */
+
+.tree {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+/* ── Level node ──────────────────────────────────────────────────────────── */
+
+.levelNode {
+  margin-bottom: 1px;
+}
+
+.levelRow {
+  display: flex;
+  align-items: center;
+  padding: 3px 6px 3px 2px;
+  border-radius: var(--mantine-radius-sm);
+  border: 1px solid transparent;
+  margin: 0 4px;
+  transition: background 80ms ease, border-color 80ms ease;
+}
+
+.levelRow:hover {
+  background: var(--mantine-color-dark-5);
+}
+
+.levelRow[data-active] {
+  background: var(--mantine-color-dark-5);
+  border-color: var(--mantine-color-yellow-8);
+}
+
+.expandBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  color: var(--mantine-color-dimmed);
+  border-radius: 3px;
+}
+
+.expandBtn:hover {
+  color: var(--mantine-color-text);
+}
+
+.chevron {
+  transition: transform 150ms ease;
+  transform: rotate(-90deg);
+}
+
+.chevron[data-open] {
+  transform: rotate(0deg);
+}
+
+.levelLabel {
+  min-width: 0;
+}
+
+.levelName {
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+/* ── Children ────────────────────────────────────────────────────────────── */
+
+.children {
+  padding-left: 20px;
+  padding-bottom: 2px;
+}
+
+.childGroupLabel {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--mantine-color-dimmed);
+  padding: 4px 8px 2px;
+  opacity: 0.7;
+}
+
+.leafItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 3px 8px;
+  border-radius: var(--mantine-radius-sm);
+  border: 1px solid transparent;
+  margin: 0 4px 1px;
+  width: calc(100% - 8px);
+  transition: background 80ms ease, border-color 80ms ease;
+}
+
+.leafItem:hover {
+  background: var(--mantine-color-dark-5);
+}
+
+.leafItem[data-active] {
+  background: var(--mantine-color-dark-5);
+  border-color: var(--mantine-color-yellow-6);
+}
+
+.leafLabel {
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  color: var(--mantine-color-text);
+}
+
+.leafItem[data-active] .leafLabel {
+  color: var(--mantine-color-yellow-4);
+}
+
+.leafMeta {
+  font-size: 10px;
+  color: var(--mantine-color-dimmed);
+  flex-shrink: 0;
+  margin-left: 4px;
+}
+
+/* ── Add level button ────────────────────────────────────────────────────── */
+
+.addBtn {
+  width: calc(100% - 8px);
+  margin: 4px 4px 0;
+  padding: 4px 8px;
+  border-radius: var(--mantine-radius-sm);
+  border: 1px dashed var(--mantine-color-dark-4);
+  color: var(--mantine-color-dimmed);
+  font-size: 12px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 80ms ease, color 80ms ease;
+}
+
+.addBtn:hover {
+  border-color: var(--mantine-color-dark-2);
+  color: var(--mantine-color-text);
+}
