@@ -6,7 +6,6 @@ const TOOLS: Array<{ id: EditorTool; label: string; hint: string }> = [
   { id: 'select',  label: 'Select',  hint: 'Click to select, drag to move  (S)' },
   { id: 'room',    label: 'Room',    hint: 'Drag to place a new room       (R)' },
   { id: 'hallway', label: 'Hallway', hint: 'Click room A then room B       (H)' },
-  { id: 'delete',  label: 'Delete',  hint: 'Click to remove room/hallway   (X)' },
 ]
 
 export function Toolbar() {

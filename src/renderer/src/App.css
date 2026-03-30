@@ -22,10 +22,9 @@
 /* ── Left nav (full height, reserved for future panels) ──────────────────── */
 
 .sidebar-left {
-  width: 190px;
+  width: 220px;
   background: var(--mantine-color-dark-7);
   border-right: 1px solid var(--mantine-color-dark-4);
-  overflow-y: auto;
   flex-shrink: 0;
 }
 
@@ -97,4 +96,41 @@
 .canvas-empty-text strong {
   color: var(--mantine-color-text);
   font-size: 16px;
+}
+
+/* ── Context menu ─────────────────────────────────────────────────────────── */
+
+.context-menu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 160px;
+  background: var(--mantine-color-dark-6);
+  border: 1px solid var(--mantine-color-dark-4);
+  border-radius: 4px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  padding: 4px 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.context-menu-item {
+  all: unset;
+  display: block;
+  padding: 7px 14px;
+  font-size: 13px;
+  color: var(--mantine-color-text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.context-menu-item:hover {
+  background: var(--mantine-color-dark-4);
+}
+
+.context-menu-item--danger {
+  color: var(--mantine-color-red-4);
+}
+
+.context-menu-item--danger:hover {
+  background: var(--mantine-color-dark-4);
 }

@@ -71,7 +71,7 @@ export interface Hallway {
   exitA?:    { x: number; y: number }
   /** Pinned exit cell on room B's wall (just outside). Auto-computed when absent. */
   exitB?:    { x: number; y: number }
-  width:     1 | 2
+  width:     1 | 2 | 3 | 4 | 5
   settings:  Partial<SurfaceSettings>
 }
 

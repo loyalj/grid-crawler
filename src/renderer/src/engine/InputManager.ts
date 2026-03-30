@@ -1,4 +1,4 @@
-import { Room, Hallway, Level } from '../types/map'
+import { Room, Hallway, Level, Waypoint } from '../types/map'
 import { computePath, resolveExitPoints, nearestWallExit } from './hallwayPath'
 import { useMapStore } from '../store/mapStore'
 import { MapRenderer, ResizeHandle } from './MapRenderer'
@@ -9,8 +9,24 @@ import {
   ResizeRoomCommand,
   AddHallwayCommand,
   RemoveHallwayCommand,
-  UpdateHallwayExitsCommand
+  UpdateHallwayExitsCommand,
+  UpdateHallwayWaypointsCommand
 } from './commands'
+
+// ── Context menu types ────────────────────────────────────────────────────────
+
+export type ContextMenuAction =
+  | { kind: 'add_waypoint';    hallwayId: string; col: number; row: number }
+  | { kind: 'remove_waypoint'; hallwayId: string; waypointIndex: number }
+  | { kind: 'delete_hallway';  hallwayId: string }
+  | { kind: 'delete_room';     roomId: string }
+  | { kind: 'delete_level';    levelId: string }
+
+export interface ContextMenuPayload {
+  screenX: number
+  screenY: number
+  items:   ContextMenuAction[]
+}
 
 // ── Interaction state machine ─────────────────────────────────────────────────
 
@@ -23,6 +39,7 @@ type InteractionState =
   | { kind: 'room_resizing';    roomId: string; handle: ResizeHandle; origRect: Rect }
   | { kind: 'hallway_placing';  roomAId: string }
   | { kind: 'hallway_endpoint'; hallwayId: string; end: 'A' | 'B'; room: { id: string; x: number; y: number; width: number; height: number }; origExitA?: { x: number; y: number }; origExitB?: { x: number; y: number } }
+  | { kind: 'hallway_waypoint'; hallwayId: string; waypointIndex: number; origWaypoints: Waypoint[] }
 
 // ── Handle hit tolerance (in grid cells) ─────────────────────────────────────
 
@@ -33,27 +50,31 @@ const HANDLE_RADIUS = 0.6
 export class InputManager {
   private state: InteractionState = { kind: 'idle' }
 
-  private _onMousedown: (e: MouseEvent) => void
-  private _onMousemove: (e: MouseEvent) => void
-  private _onMouseup:   (e: MouseEvent) => void
-  private _onMouseleave: () => void
-  private _onKeydown:   (e: KeyboardEvent) => void
+  private _onMousedown:    (e: MouseEvent) => void
+  private _onMousemove:    (e: MouseEvent) => void
+  private _onMouseup:      (e: MouseEvent) => void
+  private _onMouseleave:   () => void
+  private _onKeydown:      (e: KeyboardEvent) => void
+  private _onContextMenu:  (e: MouseEvent) => void
 
   constructor(
     private readonly canvas:   HTMLCanvasElement,
-    private readonly renderer: MapRenderer
+    private readonly renderer: MapRenderer,
+    private readonly onContextMenu?: (payload: ContextMenuPayload | null) => void
   ) {
-    this._onMousedown  = this.handleMousedown.bind(this)
-    this._onMousemove  = this.handleMousemove.bind(this)
-    this._onMouseup    = this.handleMouseup.bind(this)
-    this._onMouseleave = this.handleMouseleave.bind(this)
-    this._onKeydown    = this.handleKeydown.bind(this)
+    this._onMousedown   = this.handleMousedown.bind(this)
+    this._onMousemove   = this.handleMousemove.bind(this)
+    this._onMouseup     = this.handleMouseup.bind(this)
+    this._onMouseleave  = this.handleMouseleave.bind(this)
+    this._onKeydown     = this.handleKeydown.bind(this)
+    this._onContextMenu = (e: MouseEvent) => e.preventDefault()
 
-    canvas.addEventListener('mousedown',  this._onMousedown)
-    canvas.addEventListener('mousemove',  this._onMousemove)
-    canvas.addEventListener('mouseup',    this._onMouseup)
-    canvas.addEventListener('mouseleave', this._onMouseleave)
-    window.addEventListener('keydown',    this._onKeydown)
+    canvas.addEventListener('mousedown',   this._onMousedown)
+    canvas.addEventListener('mousemove',   this._onMousemove)
+    canvas.addEventListener('mouseup',     this._onMouseup)
+    canvas.addEventListener('mouseleave',  this._onMouseleave)
+    canvas.addEventListener('contextmenu', this._onContextMenu)
+    window.addEventListener('keydown',     this._onKeydown)
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -114,6 +135,7 @@ export class InputManager {
   // ── Mouse handlers ────────────────────────────────────────────────────────────
 
   private handleMousedown(e: MouseEvent): void {
+    if (e.button === 2) { this.handleRightClick(e); return }
     if (e.button !== 0) return
     const c = this.cell(e)
     if (!c) return
@@ -162,6 +184,22 @@ export class InputManager {
               }
               if (this.state.kind === 'hallway_endpoint') break
             }
+
+            // Check waypoint handles (no rooms needed — waypoints are absolute positions)
+            for (let i = 0; i < selHallway.waypoints.length; i++) {
+              const wp = selHallway.waypoints[i]
+              if (Math.abs(c.fx - (wp.x + 0.5)) <= HANDLE_RADIUS &&
+                  Math.abs(c.fy - (wp.y + 0.5)) <= HANDLE_RADIUS) {
+                this.state = {
+                  kind:          'hallway_waypoint',
+                  hallwayId:     selHallway.id,
+                  waypointIndex: i,
+                  origWaypoints: selHallway.waypoints.slice()
+                }
+                break
+              }
+            }
+            if (this.state.kind === 'hallway_waypoint') break
           }
         }
 
@@ -238,23 +276,6 @@ export class InputManager {
         break
       }
 
-      case 'delete': {
-        const room = this.hitRoom(c.col, c.row, level)
-        if (room) {
-          const { activeLevelId, dispatch } = store
-          if (activeLevelId) dispatch(new RemoveRoomCommand(activeLevelId, room))
-          store.setSelected(null)
-          this.renderer.setSelection(null)
-        } else {
-          // Check hallways
-          const hallway = this.hitHallway(c.col, c.row, level)
-          if (hallway) {
-            const { activeLevelId, dispatch } = store
-            if (activeLevelId) dispatch(new RemoveHallwayCommand(activeLevelId, hallway))
-          }
-        }
-        break
-      }
     }
   }
 
@@ -303,6 +324,11 @@ export class InputManager {
         break
       }
 
+      case 'hallway_waypoint': {
+        this.renderer.setEndpointPreview({ x: c.col, y: c.row })
+        break
+      }
+
       case 'hallway_placing': {
         this.renderer.setHallwayPreview(this.state.roomAId, c.col, c.row)
         break
@@ -315,8 +341,11 @@ export class InputManager {
       if (room) {
         this.renderer.setHover(room.id)
       } else {
-        const hallway = this.hitHallway(c.col, c.row, level)
-        this.renderer.setHover(hallway?.id ?? null)
+        const hits = this.hitHallwayAll(c.col, c.row, level)
+        // If the currently selected hallway is under the cursor, keep highlighting it
+        const { selectedId } = this.getStore()
+        const preferred = hits.find((h) => h.id === selectedId) ?? hits[0]
+        this.renderer.setHover(preferred?.id ?? null)
       }
     }
   }
@@ -421,12 +450,96 @@ export class InputManager {
         this.state = { kind: 'idle' }
         break
       }
+
+      case 'hallway_waypoint': {
+        if (c && store.activeLevelId) {
+          const { hallwayId, waypointIndex, origWaypoints } = this.state
+          const movedWp = origWaypoints[waypointIndex]
+          if (movedWp && (c.col !== movedWp.x || c.row !== movedWp.y)) {
+            const newWaypoints = origWaypoints.map((wp, i) =>
+              i === waypointIndex ? { x: c.col, y: c.row } : wp
+            )
+            store.dispatch(new UpdateHallwayWaypointsCommand(
+              store.activeLevelId,
+              hallwayId,
+              origWaypoints,
+              newWaypoints
+            ))
+          }
+          this.renderer.setSelection(hallwayId)
+        }
+        this.renderer.clearEndpointPreview()
+        this.state = { kind: 'idle' }
+        break
+      }
     }
   }
 
   private handleMouseleave(): void {
     this.renderer.setHover(null)
     this.renderer.clearEndpointPreview()
+  }
+
+  private handleRightClick(e: MouseEvent): void {
+    if (!this.onContextMenu) return
+    const c = this.cell(e)
+    if (!c) return
+    const store = this.getStore()
+    const level = this.getActiveLevel()
+    if (!level) return
+
+    // Rooms take priority — check them first
+    const room = this.hitRoom(c.col, c.row, level)
+    if (room) {
+      if (room.id !== store.selectedId) {
+        store.setSelected(room.id)
+        this.renderer.setSelection(room.id)
+      }
+      this.onContextMenu({
+        screenX: e.clientX,
+        screenY: e.clientY,
+        items: [{ kind: 'delete_room', roomId: room.id }]
+      })
+      return
+    }
+
+    // Find which hallway was right-clicked. Prefer the already-selected hallway
+    // so repeated right-clicks on the same hallway don't cycle selection.
+    const { selectedId } = store
+    let hallway = level.hallways.find((h) => h.id === selectedId) ?? null
+
+    if (hallway) {
+      // Verify the cursor is actually on this hallway's path
+      const roomA = level.rooms.find((r) => r.id === hallway!.roomAId)
+      const roomB = level.rooms.find((r) => r.id === hallway!.roomBId)
+      if (!roomA || !roomB) {
+        hallway = null
+      } else {
+        const path = computePath(roomA, roomB, hallway.waypoints, hallway.exitA, hallway.exitB)
+        if (!path.some((p) => p.x === c.col && p.y === c.row)) hallway = null
+      }
+    }
+
+    // Fall back to any hallway under the cursor
+    if (!hallway) hallway = this.hitHallway(c.col, c.row, level)
+    if (!hallway) return
+
+    // Select the hallway if it wasn't already
+    if (hallway.id !== selectedId) {
+      store.setSelected(hallway.id)
+      this.renderer.setSelection(hallway.id)
+    }
+
+    const wpIndex = hallway.waypoints.findIndex((wp) => wp.x === c.col && wp.y === c.row)
+    const items: ContextMenuAction[] = []
+    if (wpIndex !== -1) {
+      items.push({ kind: 'remove_waypoint', hallwayId: hallway.id, waypointIndex: wpIndex })
+    } else {
+      items.push({ kind: 'add_waypoint', hallwayId: hallway.id, col: c.col, row: c.row })
+    }
+    items.push({ kind: 'delete_hallway', hallwayId: hallway.id })
+
+    this.onContextMenu({ screenX: e.clientX, screenY: e.clientY, items })
   }
 
   private handleKeydown(e: KeyboardEvent): void {
@@ -480,10 +593,9 @@ export class InputManager {
     // Tool shortcuts
     if (!ctrl) {
       switch (e.key) {
-        case 'r': case 'R': store.setActiveTool('room');    break
-        case 'h': case 'H': store.setActiveTool('hallway'); break
-        case 's': case 'S': store.setActiveTool('select');  break
-        case 'x': case 'X': store.setActiveTool('delete');  break
+        case 'r': case 'R': this.switchTool('room');    break
+        case 'h': case 'H': this.switchTool('hallway'); break
+        case 's': case 'S': this.switchTool('select');  break
         case 'Escape':
           if (this.state.kind === 'hallway_placing') {
             this.renderer.clearHallwayPreview()
@@ -565,15 +677,45 @@ export class InputManager {
     }
   }
 
+  /** Switch tool, cancelling any in-progress hallway placement. */
+  private switchTool(tool: import('../store/mapStore').EditorTool): void {
+    if (this.state.kind === 'hallway_placing') {
+      this.renderer.clearHallwayPreview()
+      this.state = { kind: 'idle' }
+    }
+    this.getStore().setActiveTool(tool)
+    // setActiveTool already clears selectedId in the store; sync the renderer
+    this.renderer.setSelection(null)
+  }
+
+  /** Called by MapCanvas when the toolbar changes the active tool. */
+  cancelCurrentInteraction(): void {
+    if (this.state.kind === 'hallway_placing') {
+      this.renderer.clearHallwayPreview()
+    }
+    this.state = { kind: 'idle' }
+    this.renderer.setSelection(null)
+  }
+
   private hitHallway(col: number, row: number, level: Level): Hallway | null {
+    const hits = this.hitHallwayAll(col, row, level)
+    if (hits.length === 0) return null
+    // Cycle through overlapping hallways on repeated clicks at the same cell
+    const { selectedId } = this.getStore()
+    const currentIdx = hits.findIndex((h) => h.id === selectedId)
+    return hits[(currentIdx + 1) % hits.length]
+  }
+
+  private hitHallwayAll(col: number, row: number, level: Level): Hallway[] {
+    const hits: Hallway[] = []
     for (const hallway of level.hallways) {
       const roomA = level.rooms.find((r) => r.id === hallway.roomAId)
       const roomB = level.rooms.find((r) => r.id === hallway.roomBId)
       if (!roomA || !roomB) continue
-      const path = computePath(roomA, roomB, hallway.waypoints)
-      if (path.some((p) => p.x === col && p.y === row)) return hallway
+      const path = computePath(roomA, roomB, hallway.waypoints, hallway.exitA, hallway.exitB)
+      if (path.some((p) => p.x === col && p.y === row)) hits.push(hallway)
     }
-    return null
+    return hits
   }
 
   /**
@@ -601,10 +743,11 @@ export class InputManager {
   }
 
   dispose(): void {
-    this.canvas.removeEventListener('mousedown',  this._onMousedown)
-    this.canvas.removeEventListener('mousemove',  this._onMousemove)
-    this.canvas.removeEventListener('mouseup',    this._onMouseup)
-    this.canvas.removeEventListener('mouseleave', this._onMouseleave)
-    window.removeEventListener('keydown',         this._onKeydown)
+    this.canvas.removeEventListener('mousedown',   this._onMousedown)
+    this.canvas.removeEventListener('mousemove',   this._onMousemove)
+    this.canvas.removeEventListener('mouseup',     this._onMouseup)
+    this.canvas.removeEventListener('mouseleave',  this._onMouseleave)
+    this.canvas.removeEventListener('contextmenu', this._onContextMenu)
+    window.removeEventListener('keydown',          this._onKeydown)
   }
 }

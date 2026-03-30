@@ -47,3 +47,33 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ── Control rows (editable fields) ────────────────────────────────────────── */
+
+.controlRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+}
+
+.controlLabel {
+  font-size: 11px;
+  color: var(--mantine-color-dimmed);
+  flex-shrink: 0;
+  width: 52px;
+}
+
+.controlField {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Tighten the Mantine xs input so it fits the panel */
+.selectInput {
+  font-size: 11px !important;
+  min-height: unset !important;
+  height: 24px !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}

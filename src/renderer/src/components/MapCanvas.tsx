@@ -1,7 +1,9 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { MapRenderer } from '../engine/MapRenderer'
-import { InputManager } from '../engine/InputManager'
+import { InputManager, ContextMenuPayload, ContextMenuAction } from '../engine/InputManager'
 import { useMapStore } from '../store/mapStore'
+import { ContextMenu } from './ContextMenu'
+import { UpdateHallwayWaypointsCommand, RemoveHallwayCommand, RemoveRoomCommand } from '../engine/commands'
 
 export function MapCanvas() {
   const canvasRef    = useRef<HTMLCanvasElement>(null)
@@ -13,6 +15,7 @@ export function MapCanvas() {
   const activeLevelId = useMapStore((s) => s.activeLevelId)
   const viewMode      = useMapStore((s) => s.viewMode)
   const selectedId    = useMapStore((s) => s.selectedId)
+  const activeTool    = useMapStore((s) => s.activeTool)
 
   const activeLevel = useMapStore((s) => {
     const { project, activeLevelId } = s
@@ -21,11 +24,13 @@ export function MapCanvas() {
     return project.dungeonLevels.find((l) => l.id === activeLevelId) ?? null
   })
 
+  const [contextMenu, setContextMenu] = useState<ContextMenuPayload | null>(null)
+
   // Mount renderer + input manager once
   useEffect(() => {
     if (!canvasRef.current) return
     const renderer = new MapRenderer(canvasRef.current)
-    const input    = new InputManager(canvasRef.current, renderer)
+    const input    = new InputManager(canvasRef.current, renderer, setContextMenu)
     rendererRef.current = renderer
     inputRef.current    = input
     renderer.setViewMode('topdown')
@@ -58,6 +63,11 @@ export function MapCanvas() {
     )
   }, [viewMode]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Tool changes from the toolbar → cancel any in-progress interaction
+  useEffect(() => {
+    inputRef.current?.cancelCurrentInteraction()
+  }, [activeTool])
+
   // Level data changes → full re-render
   useEffect(() => {
     if (!activeLevel) return
@@ -72,9 +82,70 @@ export function MapCanvas() {
     rendererRef.current?.setSelection(selectedId)
   }, [selectedId])
 
+  function handleContextAction(action: ContextMenuAction): void {
+    const store = useMapStore.getState()
+    const { activeLevelId } = store
+    if (!activeLevelId) return
+    const level = (() => {
+      const { project } = store
+      if (!project) return null
+      if (project.overworld.id === activeLevelId) return project.overworld
+      return project.dungeonLevels.find((l) => l.id === activeLevelId) ?? null
+    })()
+    if (!level) return
+
+    switch (action.kind) {
+      case 'add_waypoint': {
+        const hallway = level.hallways.find((h) => h.id === action.hallwayId)
+        if (!hallway) return
+        const newWaypoints = [...hallway.waypoints, { x: action.col, y: action.row }]
+        store.dispatch(new UpdateHallwayWaypointsCommand(
+          activeLevelId, action.hallwayId, hallway.waypoints, newWaypoints
+        ))
+        break
+      }
+      case 'remove_waypoint': {
+        const hallway = level.hallways.find((h) => h.id === action.hallwayId)
+        if (!hallway) return
+        const newWaypoints = hallway.waypoints.filter((_, i) => i !== action.waypointIndex)
+        store.dispatch(new UpdateHallwayWaypointsCommand(
+          activeLevelId, action.hallwayId, hallway.waypoints, newWaypoints
+        ))
+        break
+      }
+      case 'delete_hallway': {
+        const hallway = level.hallways.find((h) => h.id === action.hallwayId)
+        if (!hallway) return
+        store.dispatch(new RemoveHallwayCommand(activeLevelId, hallway))
+        store.setSelected(null)
+        rendererRef.current?.setSelection(null)
+        break
+      }
+      case 'delete_room': {
+        const room = level.rooms.find((r) => r.id === action.roomId)
+        if (!room) return
+        store.dispatch(new RemoveRoomCommand(activeLevelId, room))
+        store.setSelected(null)
+        rendererRef.current?.setSelection(null)
+        break
+      }
+      case 'delete_level':
+        break  // only triggered from the nav tree, not the canvas
+    }
+  }
+
   return (
     <div ref={containerRef} className="canvas-container">
       <canvas ref={canvasRef} className="map-canvas" />
+      {contextMenu && (
+        <ContextMenu
+          screenX={contextMenu.screenX}
+          screenY={contextMenu.screenY}
+          items={contextMenu.items}
+          onAction={handleContextAction}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
       {!project && (
         <div className="canvas-empty">
           <div className="canvas-empty-text">

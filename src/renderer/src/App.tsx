@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Modal, TextInput, NumberInput, Group, Button, Stack } from '@mantine/core'
 import { MapCanvas } from './components/MapCanvas'
 import { Toolbar } from './components/Toolbar'
-import { LevelNav } from './components/LevelNav'
+import { SideNav } from './components/SideNav'
 import { DetailsPanel } from './components/DetailsPanel'
 import { useMapStore } from './store/mapStore'
 
@@ -56,7 +56,7 @@ export default function App() {
     <div className="app">
       <div className="app-body">
         <aside className="sidebar-left">
-          <LevelNav />
+          <SideNav />
         </aside>
 
         <div className="main-column">

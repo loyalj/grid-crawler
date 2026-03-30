@@ -1,0 +1,91 @@
+.sidenav {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────────── */
+
+.header {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 8px 8px 6px;
+  border-bottom: 1px solid var(--mantine-color-dark-4);
+  flex-shrink: 0;
+}
+
+.headerTitle {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--mantine-color-yellow-4);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
+}
+
+.headerVersion {
+  font-size: 11px;
+  color: var(--mantine-color-dimmed);
+  flex-shrink: 0;
+}
+
+/* ── Body ──────────────────────────────────────────────────────────────────── */
+
+.body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ── Icon rail ─────────────────────────────────────────────────────────────── */
+
+.rail {
+  width: 44px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 0;
+  gap: 2px;
+  border-right: 1px solid var(--mantine-color-dark-4);
+}
+
+.railBtn {
+  all: unset;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--mantine-radius-sm);
+  color: var(--mantine-color-dimmed);
+  cursor: pointer;
+  transition: background 80ms ease, color 80ms ease;
+}
+
+.railBtn:hover {
+  background: var(--mantine-color-dark-5);
+  color: var(--mantine-color-text);
+}
+
+.railBtn[data-active] {
+  background: var(--mantine-color-dark-5);
+  color: var(--mantine-color-yellow-4);
+}
+
+.railIcon {
+  width: 18px;
+  height: 18px;
+}
+
+/* ── Context panel ─────────────────────────────────────────────────────────── */
+
+.panel {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-width: 0;
+}

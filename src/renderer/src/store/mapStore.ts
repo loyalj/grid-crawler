@@ -4,7 +4,7 @@ import { Command } from '../types/commands'
 import { AddLevelCommand, RemoveLevelCommand } from '../engine/commands'
 
 export type ViewMode  = 'topdown' | 'isometric' | 'fps'
-export type EditorTool = 'room' | 'hallway' | 'select' | 'delete'
+export type EditorTool = 'room' | 'hallway' | 'select'
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -130,7 +130,7 @@ export const useMapStore = create<MapStore>((set, get) => ({
 
   // ── Tool + selection ─────────────────────────────────────────────────────────
 
-  setActiveTool: (activeTool) => set({ activeTool }),
+  setActiveTool: (activeTool) => set({ activeTool, selectedId: null }),
   setSelected:   (selectedId) => set({ selectedId }),
 
   // ── Command dispatch ─────────────────────────────────────────────────────────

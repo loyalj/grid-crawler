@@ -1,5 +1,5 @@
 import { Command } from '../../types/commands'
-import { MapProject, Hallway, Waypoint } from '../../types/map'
+import { MapProject, Hallway, Waypoint, SurfaceSettings } from '../../types/map'
 
 // ── Shared helpers ─────────────────────────────────────────────────────────────
 
@@ -23,6 +23,102 @@ function mapHallways(
 }
 
 // ── Commands ───────────────────────────────────────────────────────────────────
+
+export class UpdateHallwaySettingsCommand implements Command {
+  readonly description = 'Update hallway settings'
+
+  constructor(
+    private readonly levelId:   string,
+    private readonly hallwayId: string,
+    private readonly before:    Partial<SurfaceSettings>,
+    private readonly after:     Partial<SurfaceSettings>
+  ) {}
+
+  execute(project: MapProject): MapProject {
+    return mapHallways(project, this.levelId, (hallways) =>
+      hallways.map((h) => h.id === this.hallwayId ? { ...h, settings: this.after } : h)
+    )
+  }
+
+  undo(project: MapProject): MapProject {
+    return mapHallways(project, this.levelId, (hallways) =>
+      hallways.map((h) => h.id === this.hallwayId ? { ...h, settings: this.before } : h)
+    )
+  }
+}
+
+export class UpdateHallwayWidthCommand implements Command {
+  readonly description = 'Update hallway width'
+
+  constructor(
+    private readonly levelId:   string,
+    private readonly hallwayId: string,
+    private readonly from: Hallway['width'],
+    private readonly to:   Hallway['width']
+  ) {}
+
+  execute(project: MapProject): MapProject {
+    return mapHallways(project, this.levelId, (hallways) =>
+      hallways.map((h) => h.id === this.hallwayId ? { ...h, width: this.to } : h)
+    )
+  }
+
+  undo(project: MapProject): MapProject {
+    return mapHallways(project, this.levelId, (hallways) =>
+      hallways.map((h) => h.id === this.hallwayId ? { ...h, width: this.from } : h)
+    )
+  }
+}
+
+export class RerouteHallwayCommand implements Command {
+  readonly description = 'Reroute hallway'
+
+  constructor(
+    private readonly levelId:   string,
+    private readonly hallwayId: string,
+    private readonly before: {
+      roomAId:   string
+      roomBId:   string
+      exitA?:    { x: number; y: number }
+      exitB?:    { x: number; y: number }
+      waypoints: Waypoint[]
+    },
+    private readonly after: {
+      roomAId: string
+      roomBId: string
+    }
+  ) {}
+
+  execute(project: MapProject): MapProject {
+    return mapHallways(project, this.levelId, (hallways) =>
+      hallways.map((h) => h.id === this.hallwayId
+        ? { ...h,
+            roomAId:   this.after.roomAId,
+            roomBId:   this.after.roomBId,
+            exitA:     undefined,
+            exitB:     undefined,
+            waypoints: []
+          }
+        : h
+      )
+    )
+  }
+
+  undo(project: MapProject): MapProject {
+    return mapHallways(project, this.levelId, (hallways) =>
+      hallways.map((h) => h.id === this.hallwayId
+        ? { ...h,
+            roomAId:   this.before.roomAId,
+            roomBId:   this.before.roomBId,
+            exitA:     this.before.exitA,
+            exitB:     this.before.exitB,
+            waypoints: this.before.waypoints
+          }
+        : h
+      )
+    )
+  }
+}
 
 export class AddHallwayCommand implements Command {
   readonly description = 'Add hallway'

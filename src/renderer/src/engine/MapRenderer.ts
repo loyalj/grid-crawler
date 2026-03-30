@@ -33,6 +33,7 @@ const HOVER_COLOR     = 0xffffff
 const GHOST_COLOR       = 0x7b5eea
 const HALLWAY_PREVIEW   = 0x5eea9a
 const ENDPOINT_COLOR    = 0x4dd9ac   // teal — hallway endpoint handles
+const WAYPOINT_COLOR    = 0xff8c42   // orange — hallway waypoint handles
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -493,6 +494,16 @@ export class MapRenderer {
           mesh.renderOrder = 10
           this.selectionGroup.add(mesh)
         }
+
+        // Waypoint handles (orange, slightly smaller)
+        const wpGeo = new THREE.BoxGeometry(0.42, 0.42, 0.42)
+        const wpMat = new THREE.MeshBasicMaterial({ color: WAYPOINT_COLOR, depthTest: false })
+        for (const wp of hallway.waypoints) {
+          const mesh = new THREE.Mesh(wpGeo, wpMat)
+          mesh.position.set((wp.x + 0.5) * CELL_SIZE, 0.21, (wp.y + 0.5) * CELL_SIZE)
+          mesh.renderOrder = 10
+          this.selectionGroup.add(mesh)
+        }
       }
     }
   }
@@ -571,8 +582,9 @@ export class MapRenderer {
       (c) => c.userData['roomId'] === roomAId
     ) as THREE.Mesh | undefined
     if (existing && !Array.isArray(existing.material)) {
-      (existing.material as THREE.MeshLambertMaterial).emissive.setHex(HALLWAY_PREVIEW)
-      (existing.material as THREE.MeshLambertMaterial).emissiveIntensity = 0.3
+      const mat = existing.material as THREE.MeshLambertMaterial
+      mat.emissive = new THREE.Color(HALLWAY_PREVIEW)
+      mat.emissiveIntensity = 0.3
     }
     // Show ghost cursor at current position
     this.positionFlatQuad(this.ghostMesh, cursorCol - 0.5, cursorRow - 0.5, 1, 1, 0.012)
@@ -585,7 +597,7 @@ export class MapRenderer {
       const mesh = child as THREE.Mesh
       if (!mesh.isMesh) continue
       const mat = mesh.material as THREE.MeshLambertMaterial
-      if (mat.emissive) mat.emissive.setHex(0x000000)
+      if (mat.emissive) mat.emissive = new THREE.Color(0x000000)
     }
   }
 

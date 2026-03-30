@@ -2,6 +2,9 @@ import { useState } from 'react'
 import { Text, UnstyledButton, Badge, Group } from '@mantine/core'
 import { useMapStore } from '../store/mapStore'
 import { Level } from '../types/map'
+import { RemoveRoomCommand, RemoveHallwayCommand } from '../engine/commands'
+import { ContextMenu } from './ContextMenu'
+import { ContextMenuAction } from '../engine/InputManager'
 import classes from './LevelNav.module.css'
 
 // ── Chevron icon ──────────────────────────────────────────────────────────────
@@ -19,14 +22,27 @@ function Chevron({ open }: { open: boolean }) {
   )
 }
 
+// ── Context menu state ────────────────────────────────────────────────────────
+
+interface NavContextMenu {
+  screenX: number
+  screenY: number
+  levelId: string
+  items:   ContextMenuAction[]
+}
+
 // ── Level tree node ───────────────────────────────────────────────────────────
 
-function LevelTree({ level }: { level: Level }) {
-  const activeLevelId      = useMapStore((s) => s.activeLevelId)
-  const selectedId         = useMapStore((s) => s.selectedId)
-  const setActiveLevel     = useMapStore((s) => s.setActiveLevel)
-  const setSelected        = useMapStore((s) => s.setSelected)
+interface LevelTreeProps {
+  level:         Level
+  onContextMenu: (menu: NavContextMenu) => void
+}
 
+function LevelTree({ level, onContextMenu }: LevelTreeProps) {
+  const activeLevelId  = useMapStore((s) => s.activeLevelId)
+  const selectedId     = useMapStore((s) => s.selectedId)
+  const setActiveLevel = useMapStore((s) => s.setActiveLevel)
+  const setSelected    = useMapStore((s) => s.setSelected)
 
   const isActiveLevel = activeLevelId === level.id
   const [open, setOpen] = useState(isActiveLevel)
@@ -44,10 +60,50 @@ function LevelTree({ level }: { level: Level }) {
     setSelected(id)
   }
 
+  function openLevelMenu(e: React.MouseEvent) {
+    if (level.depth === 0) return   // overworld cannot be deleted
+    e.preventDefault()
+    e.stopPropagation()
+    onContextMenu({
+      screenX: e.clientX,
+      screenY: e.clientY,
+      levelId: level.id,
+      items:   [{ kind: 'delete_level', levelId: level.id }]
+    })
+  }
+
+  function openRoomMenu(e: React.MouseEvent, roomId: string) {
+    e.preventDefault()
+    e.stopPropagation()
+    onContextMenu({
+      screenX: e.clientX,
+      screenY: e.clientY,
+      levelId: level.id,
+      items:   [{ kind: 'delete_room', roomId }]
+    })
+  }
+
+  function openHallwayMenu(e: React.MouseEvent, hallwayId: string) {
+    e.preventDefault()
+    e.stopPropagation()
+    onContextMenu({
+      screenX: e.clientX,
+      screenY: e.clientY,
+      levelId: level.id,
+      items:   [{ kind: 'delete_hallway', hallwayId }]
+    })
+  }
+
   return (
     <div className={classes.levelNode}>
       {/* Level row */}
-      <Group gap={0} wrap="nowrap" className={classes.levelRow} data-active={isActiveLevel && !selectedId || undefined}>
+      <Group
+        gap={0}
+        wrap="nowrap"
+        className={classes.levelRow}
+        data-active={isActiveLevel && !selectedId || undefined}
+        onContextMenu={level.depth !== 0 ? openLevelMenu : undefined}
+      >
         <UnstyledButton
           className={classes.expandBtn}
           onClick={() => setOpen((o) => !o)}
@@ -69,7 +125,6 @@ function LevelTree({ level }: { level: Level }) {
             <Text className={classes.levelName} title={level.name}>{level.name}</Text>
           </Group>
         </UnstyledButton>
-
       </Group>
 
       {/* Children */}
@@ -84,6 +139,7 @@ function LevelTree({ level }: { level: Level }) {
                   className={classes.leafItem}
                   data-active={selectedId === room.id || undefined}
                   onClick={() => selectItem(room.id)}
+                  onContextMenu={(e) => openRoomMenu(e, room.id)}
                 >
                   <Text className={classes.leafLabel} title={room.name}>
                     {room.name || 'Unnamed Room'}
@@ -111,6 +167,7 @@ function LevelTree({ level }: { level: Level }) {
                     className={classes.leafItem}
                     data-active={selectedId === hallway.id || undefined}
                     onClick={() => selectItem(hallway.id)}
+                    onContextMenu={(e) => openHallwayMenu(e, hallway.id)}
                   >
                     <Text className={classes.leafLabel} title={label}>
                       {label}
@@ -129,8 +186,11 @@ function LevelTree({ level }: { level: Level }) {
 // ── Main nav ──────────────────────────────────────────────────────────────────
 
 export function LevelNav() {
-  const project          = useMapStore((s) => s.project)
-  const addDungeonLevel  = useMapStore((s) => s.addDungeonLevel)
+  const project             = useMapStore((s) => s.project)
+  const addDungeonLevel     = useMapStore((s) => s.addDungeonLevel)
+  const removeDungeonLevel  = useMapStore((s) => s.removeDungeonLevel)
+
+  const [ctxMenu, setCtxMenu] = useState<NavContextMenu | null>(null)
 
   if (!project) {
     return (
@@ -140,24 +200,67 @@ export function LevelNav() {
     )
   }
 
+  function handleNavAction(action: ContextMenuAction, levelId: string): void {
+    const store = useMapStore.getState()
+    const { project } = store
+    if (!project) return
+
+    const level =
+      project.overworld.id === levelId
+        ? project.overworld
+        : project.dungeonLevels.find((l) => l.id === levelId) ?? null
+
+    switch (action.kind) {
+      case 'delete_room': {
+        const room = level?.rooms.find((r) => r.id === action.roomId)
+        if (room) {
+          store.dispatch(new RemoveRoomCommand(levelId, room))
+          if (store.selectedId === room.id) store.setSelected(null)
+        }
+        break
+      }
+      case 'delete_hallway': {
+        const hallway = level?.hallways.find((h) => h.id === action.hallwayId)
+        if (hallway) {
+          store.dispatch(new RemoveHallwayCommand(levelId, hallway))
+          if (store.selectedId === hallway.id) store.setSelected(null)
+        }
+        break
+      }
+      case 'delete_level': {
+        removeDungeonLevel(action.levelId)
+        break
+      }
+    }
+  }
+
   const levels = [project.overworld, ...project.dungeonLevels]
 
   return (
     <div className={classes.nav}>
-      <div className={classes.header}>
-        <Text className={classes.projectName} title={project.name}>{project.name}</Text>
-        <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>v{project.version}</Text>
-      </div>
-
       <div className={classes.tree}>
         {levels.map((level) => (
-          <LevelTree key={level.id} level={level} />
+          <LevelTree
+            key={level.id}
+            level={level}
+            onContextMenu={setCtxMenu}
+          />
         ))}
-
-        <UnstyledButton className={classes.addBtn} onClick={addDungeonLevel}>
-          + Add Level
-        </UnstyledButton>
       </div>
+
+      <UnstyledButton className={classes.addBtn} onClick={addDungeonLevel}>
+        + Add Level
+      </UnstyledButton>
+
+      {ctxMenu && (
+        <ContextMenu
+          screenX={ctxMenu.screenX}
+          screenY={ctxMenu.screenY}
+          items={ctxMenu.items}
+          onAction={(action) => { handleNavAction(action, ctxMenu.levelId); setCtxMenu(null) }}
+          onClose={() => setCtxMenu(null)}
+        />
+      )}
     </div>
   )
 }
