@@ -31,7 +31,7 @@ mac:
         - arm64
   notarize: false
 dmg:
-  artifactName: ${name}-${version}.${ext}
+  artifactName: ${name}-${version}-${arch}.${ext}
 
 linux:
   target:
