@@ -5,11 +5,17 @@ const LABELS: Record<ContextMenuAction['kind'], string> = {
   add_waypoint:    'Add Waypoint',
   remove_waypoint: 'Delete Waypoint',
   delete_hallway:  'Delete Hallway',
+  copy_room:       'Copy Room',
+  cut_room:        'Cut Room',
   delete_room:     'Delete Room',
-  delete_level:    'Delete Level'
+  delete_level:    'Delete Level',
+  copy_object:     'Copy',
+  cut_object:      'Cut',
+  delete_object:   'Delete Object',
+  paste:           'Paste'
 }
 
-const DANGER_KINDS = new Set<ContextMenuAction['kind']>(['delete_hallway', 'remove_waypoint', 'delete_room', 'delete_level'])
+const DANGER_KINDS = new Set<ContextMenuAction['kind']>(['delete_hallway', 'remove_waypoint', 'delete_room', 'delete_level', 'delete_object'])
 
 interface Props {
   screenX: number

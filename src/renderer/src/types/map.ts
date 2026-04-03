@@ -90,42 +90,86 @@ export interface Level {
   settings:   LevelSettings
   rooms:      Room[]
   hallways:   Hallway[]
-  placements: Placement[]
+  placements: ObjectPlacement[]
 }
 
-// ── Catalog / Placements ───────────────────────────────────────────────────────
+// ── Object catalog ─────────────────────────────────────────────────────────────
 
-export interface ItemDefinition {
+/** A free-form name/value pair the user can attach to any object definition */
+export interface ObjectProperty {
+  name:         string
+  defaultValue: string
+}
+
+export type TokenCategory = 'loot' | 'trap' | 'container' | 'hazard'
+export type PropCategory  = 'furniture' | 'structure'
+
+export interface TokenVisual {
+  /** Relative path in catalog dir — used for editing/display only */
+  icon:         string
+  /** SVG file content inlined by the main process at load time */
+  iconContent:  string
+  bgColor:      string
+  fgColor:      string
+  borderColor:  string
+}
+
+export interface PropVisual {
+  /** Relative path in catalog dir — used for editing/display only */
+  texture:      string
+  /** Absolute file:// URL resolved by the main process at load time */
+  textureUrl:   string
+  /** Width in grid units */
+  naturalWidth:  number
+  /** Height in grid units */
+  naturalHeight: number
+}
+
+interface ObjectDefinitionBase {
   id:          string
   name:        string
   description: string
-  category:    string
-  properties:  Record<string, unknown>
+  /** 'app' = shipped with the application; 'project' = stored in the map file */
+  tier:        'app' | 'project'
+  properties:  ObjectProperty[]
 }
 
-export interface EntityDefinition {
-  id:          string
-  name:        string
-  description: string
-  type:        'monster' | 'npc' | 'boss' | 'neutral'
-  cr?:         number
-  properties:  Record<string, unknown>
+export interface TokenDefinition extends ObjectDefinitionBase {
+  kind:     'token'
+  category: TokenCategory
+  visual:   TokenVisual
 }
 
-export interface Catalog {
-  items:    ItemDefinition[]
-  entities: EntityDefinition[]
+export interface PropDefinition extends ObjectDefinitionBase {
+  kind:     'prop'
+  category: PropCategory
+  visual:   PropVisual
 }
 
-export interface Placement {
-  id:          string
-  catalogId:   string
-  catalogType: 'item' | 'entity'
-  x:           number
-  y:           number
-  quantity?:   number
-  metadata:    Record<string, unknown>
+export type ObjectDefinition = TokenDefinition | PropDefinition
+
+// ── Object placements (per-level instances) ────────────────────────────────────
+
+interface PlacementBase {
+  id:             string
+  definitionId:   string
+  /** Free-placed float position; top-left origin in grid units */
+  x:              number
+  y:              number
+  /** Per-instance property value overrides; absent keys fall back to definition defaults */
+  propertyValues: Record<string, string>
 }
+
+export interface TokenPlacement extends PlacementBase {
+  kind: 'token'
+}
+
+export interface PropPlacement extends PlacementBase {
+  kind:     'prop'
+  rotation: 0 | 90 | 180 | 270
+}
+
+export type ObjectPlacement = TokenPlacement | PropPlacement
 
 // ── Project ────────────────────────────────────────────────────────────────────
 
@@ -144,7 +188,8 @@ export interface MapProject {
   createdAt:     string
   updatedAt:     string
   metadata:      MapMetadata
-  catalog:       Catalog
+  /** Project-tier object definitions only. App-tier live in resources/catalog/. */
+  projectCatalog: ObjectDefinition[]
   overworld:     Level
   dungeonLevels: Level[]
 }

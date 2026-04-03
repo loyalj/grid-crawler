@@ -1,0 +1,167 @@
+.nav {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ── Section headers ───────────────────────────────────────────────────────── */
+
+.sectionLabel {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--mantine-color-dimmed);
+  padding: 6px 8px 2px;
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.sectionBody {
+  flex: 1;
+  overflow-y: auto;
+  padding: 2px 0;
+}
+
+.divider {
+  height: 1px;
+  background: var(--mantine-color-dark-4);
+  flex-shrink: 0;
+}
+
+/* ── Group label (Loot, Traps, etc.) ───────────────────────────────────────── */
+
+.groupLabel {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--mantine-color-dimmed);
+  padding: 5px 8px 2px;
+  opacity: 0.6;
+}
+
+/* ── Catalog items ─────────────────────────────────────────────────────────── */
+
+.catalogItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: calc(100% - 8px);
+  margin: 0 4px 1px;
+  padding: 4px 6px;
+  border-radius: var(--mantine-radius-sm);
+  border: 1px solid transparent;
+  transition: background 80ms ease, border-color 80ms ease;
+  cursor: pointer;
+}
+
+.catalogItem:hover {
+  background: var(--mantine-color-dark-5);
+}
+
+.catalogItem[data-active] {
+  background: var(--mantine-color-dark-5);
+  border-color: var(--mantine-color-yellow-7);
+}
+
+.catalogItemText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.catalogItemName {
+  font-size: 11px;
+  color: var(--mantine-color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.catalogItemTier {
+  font-size: 9px;
+  color: var(--mantine-color-blue-4);
+}
+
+/* ── Token icon circle ─────────────────────────────────────────────────────── */
+
+.tokenIcon {
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.tokenIcon svg {
+  width: 60%;
+  height: 60%;
+}
+
+/* ── Prop icon placeholder ─────────────────────────────────────────────────── */
+
+.propIconPlaceholder {
+  width: 24px;
+  height: 24px;
+  border-radius: 3px;
+  background: var(--mantine-color-dark-4);
+  border: 1px solid var(--mantine-color-dark-3);
+  flex-shrink: 0;
+}
+
+/* ── Placed items ──────────────────────────────────────────────────────────── */
+
+.placedItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: calc(100% - 8px);
+  margin: 0 4px 1px;
+  padding: 3px 6px;
+  border-radius: var(--mantine-radius-sm);
+  border: 1px solid transparent;
+  transition: background 80ms ease, border-color 80ms ease;
+  cursor: pointer;
+}
+
+.placedItem:hover {
+  background: var(--mantine-color-dark-5);
+}
+
+.placedItem[data-active] {
+  background: var(--mantine-color-dark-5);
+  border-color: var(--mantine-color-yellow-6);
+}
+
+.placedItemText {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.placedItemName {
+  font-size: 11px;
+  color: var(--mantine-color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+
+.placedItemPos {
+  font-size: 10px;
+  color: var(--mantine-color-dimmed);
+  flex-shrink: 0;
+}

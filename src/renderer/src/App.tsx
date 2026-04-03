@@ -1,47 +1,199 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Modal, TextInput, NumberInput, Group, Button, Stack } from '@mantine/core'
-import { MapCanvas } from './components/MapCanvas'
+import { MapCanvas, MapCanvasHandle } from './components/MapCanvas'
 import { Toolbar } from './components/Toolbar'
 import { SideNav } from './components/SideNav'
 import { DetailsPanel } from './components/DetailsPanel'
+import { SettingsContent } from './components/SettingsPanel'
 import { useMapStore } from './store/mapStore'
+import { ObjectDefinition } from './types/map'
+import { buildCrwlBuffer, parseCrwlBuffer } from './engine/projectFile'
 
 export default function App() {
-  const project     = useMapStore((s) => s.project)
-  const isDirty     = useMapStore((s) => s.isDirty)
-  const newProject  = useMapStore((s) => s.newProject)
-  const setViewMode = useMapStore((s) => s.setViewMode)
+  const project        = useMapStore((s) => s.project)
+  const isDirty        = useMapStore((s) => s.isDirty)
+  const newProject     = useMapStore((s) => s.newProject)
+  const setProject     = useMapStore((s) => s.setProject)
+  const markSaved      = useMapStore((s) => s.markSaved)
+  const setViewMode    = useMapStore((s) => s.setViewMode)
+  const setAppCatalog  = useMapStore((s) => s.setAppCatalog)
+  const navSection     = useMapStore((s) => s.navSection)
+
+  // Tracks the file path of the currently open document (null = unsaved)
+  const mapCanvasRef          = useRef<MapCanvasHandle>(null)
+  const currentFilePathRef    = useRef<string | null>(null)
+  // Guards against re-entrant file-op dialogs
+  const fileOpInProgressRef   = useRef(false)
+  // Guards against the window close event firing twice on Windows
+  const closeInProgressRef    = useRef(false)
+
+  // Set initial window title (no project open yet)
+  useEffect(() => { updateTitle(null, false) }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Load app catalog once on mount
+  useEffect(() => {
+    window.electronAPI.loadAppCatalog().then((raw) => {
+      setAppCatalog(raw as ObjectDefinition[])
+    }).catch((e) => console.warn('[App] failed to load app catalog:', e))
+  }, [setAppCatalog])
 
   const [showNew, setShowNew]     = useState(false)
   const [mapName, setMapName]     = useState('')
   const [mapWidth, setMapWidth]   = useState<number>(32)
   const [mapHeight, setMapHeight] = useState<number>(32)
 
+  // Unsaved-changes confirmation modal
+  const [showUnsaved, setShowUnsaved] = useState(false)
+  const unsavedResolveRef = useRef<((result: 'save' | 'discard' | 'cancel') => void) | null>(null)
+
+  function promptUnsaved(): Promise<'save' | 'discard' | 'cancel'> {
+    return new Promise((resolve) => {
+      unsavedResolveRef.current = resolve
+      setShowUnsaved(true)
+    })
+  }
+
+  function resolveUnsaved(result: 'save' | 'discard' | 'cancel'): void {
+    setShowUnsaved(false)
+    unsavedResolveRef.current?.(result)
+    unsavedResolveRef.current = null
+  }
+
   const handleCreate = () => {
     const name = mapName.trim()
     if (!name) return
     newProject(name, mapWidth, mapHeight)
+    updateTitle(null)
     setShowNew(false)
     setMapName('')
   }
 
-  const openNew = () => {
-    if (isDirty && !confirm('Unsaved changes will be lost. Continue?')) return
-    setMapName('')
-    setShowNew(true)
+  function updateTitle(filePath: string | null, hasProject = true): void {
+    if (!hasProject) { window.electronAPI.setTitle('Grid Crawler'); return }
+    const fileName = filePath ? (filePath.split(/[\\/]/).pop() ?? filePath) : 'Unsaved'
+    window.electronAPI.setTitle(`Grid Crawler - ${fileName}`)
   }
 
-  useEffect(() => {
-    window.electronAPI.setTitle(project ? `Grid Crawler - ${project.name}` : 'Grid Crawler')
-  }, [project?.name])
+  async function doSave(filePath: string): Promise<void> {
+    const { project } = useMapStore.getState()
+    if (!project) return
+    const buffer = await buildCrwlBuffer(project)
+    await window.electronAPI.writeFile(filePath, buffer)
+    markSaved()
+    updateTitle(filePath)
+  }
+
+  /**
+   * If the project is dirty, asks the user to save first.
+   * Returns true if it's safe to proceed (not dirty, or saved successfully).
+   * Returns false if the user cancelled (caller should abort their action).
+   */
+  async function saveIfDirty(): Promise<boolean> {
+    const { isDirty, project } = useMapStore.getState()
+    if (!isDirty) return true
+
+    const result = await promptUnsaved()
+    if (result === 'cancel') return false
+    if (result === 'discard') return true
+
+    // result === 'save'
+    const path = currentFilePathRef.current
+    if (path) {
+      await doSave(path)
+      return true
+    }
+    if (!project) return true
+    const filePath = await window.electronAPI.saveFile(`${project.name}.crwl`)
+    if (!filePath) return false
+    currentFilePathRef.current = filePath
+    await doSave(filePath)
+    return true
+  }
+
+  async function openNew(): Promise<void> {
+    if (fileOpInProgressRef.current) return
+    fileOpInProgressRef.current = true
+    try {
+      if (!await saveIfDirty()) return
+      currentFilePathRef.current = null
+      setMapName('')
+      setShowNew(true)
+    } finally {
+      fileOpInProgressRef.current = false
+    }
+  }
+
+  async function handleSaveAs(): Promise<void> {
+    if (fileOpInProgressRef.current) return
+    fileOpInProgressRef.current = true
+    try {
+      const { project } = useMapStore.getState()
+      if (!project) return
+      const filePath = await window.electronAPI.saveFile(`${project.name}.crwl`)
+      if (!filePath) return
+      currentFilePathRef.current = filePath
+      await doSave(filePath)
+    } finally {
+      fileOpInProgressRef.current = false
+    }
+  }
+
+  async function handleSave(): Promise<void> {
+    if (fileOpInProgressRef.current) return
+    if (currentFilePathRef.current) {
+      fileOpInProgressRef.current = true
+      try {
+        await doSave(currentFilePathRef.current)
+      } finally {
+        fileOpInProgressRef.current = false
+      }
+    } else {
+      await handleSaveAs()
+    }
+  }
+
+  async function handleOpen(): Promise<void> {
+    if (fileOpInProgressRef.current) return
+    fileOpInProgressRef.current = true
+    try {
+      if (!await saveIfDirty()) return
+      const result = await window.electronAPI.openFile()
+      if (!result) return
+      const project = await parseCrwlBuffer(result.data)
+      currentFilePathRef.current = result.filePath
+      updateTitle(result.filePath)
+      setProject(project)
+    } catch (e) {
+      console.error('[App] failed to open .crwl file:', e)
+      alert('Failed to open file. It may be corrupt or an unsupported format.')
+    } finally {
+      fileOpInProgressRef.current = false
+    }
+  }
+
+  async function handleBeforeClose(): Promise<void> {
+    if (closeInProgressRef.current) return
+    closeInProgressRef.current = true
+    try {
+      if (await saveIfDirty()) window.electronAPI.confirmClose()
+    } finally {
+      closeInProgressRef.current = false
+    }
+  }
 
   useEffect(() => {
     const handler = (action: string) => {
       switch (action) {
-        case 'file:new':       openNew();                  break
-        case 'file:open':                                  break
-        case 'file:save':                                  break
-        case 'file:saveAs':                                break
+        case 'file:new':       openNew();          break
+        case 'file:open':      handleOpen();       break
+        case 'file:save':      handleSave();       break
+        case 'file:saveAs':    handleSaveAs();     break
+        case 'edit:undo':        mapCanvasRef.current?.undo();  break
+        case 'edit:redo':        mapCanvasRef.current?.redo();  break
+        case 'edit:copy':        mapCanvasRef.current?.copy();  break
+        case 'edit:cut':         mapCanvasRef.current?.cut();   break
+        case 'edit:paste':       mapCanvasRef.current?.paste(); break
+        case 'app:beforeClose':  handleBeforeClose();           break
         case 'file:exportPdf':                             break
         case 'view:topdown':   setViewMode('topdown');     break
         case 'view:isometric': setViewMode('isometric');   break
@@ -50,7 +202,7 @@ export default function App() {
     }
     window.electronAPI.onMenuAction(handler)
     return () => window.electronAPI.offMenuAction(handler)
-  }, [isDirty, newProject, setViewMode])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="app">
@@ -60,19 +212,41 @@ export default function App() {
         </aside>
 
         <div className="main-column">
-          <Toolbar />
-
-          <div className="content-row">
-            <main className="canvas-area">
-              <MapCanvas />
-            </main>
-
-            <aside className="sidebar-right">
-              <DetailsPanel />
-            </aside>
-          </div>
+          {navSection === 'settings' ? (
+            <SettingsContent />
+          ) : (
+            <>
+              <Toolbar />
+              <div className="content-row">
+                <main className="canvas-area">
+                  <MapCanvas ref={mapCanvasRef} />
+                </main>
+                <aside className="sidebar-right">
+                  <DetailsPanel />
+                </aside>
+              </div>
+            </>
+          )}
         </div>
       </div>
+
+      <Modal
+        opened={showUnsaved}
+        onClose={() => resolveUnsaved('cancel')}
+        title="Unsaved Changes"
+        centered
+        size="sm"
+        withCloseButton={false}
+      >
+        <Stack gap="sm">
+          <p style={{ margin: 0 }}>You have unsaved changes. What would you like to do?</p>
+          <Group justify="flex-end" mt="xs">
+            <Button onClick={() => resolveUnsaved('save')}>Save</Button>
+            <Button variant="default" onClick={() => resolveUnsaved('discard')}>Don't Save</Button>
+            <Button variant="subtle" onClick={() => resolveUnsaved('cancel')}>Cancel</Button>
+          </Group>
+        </Stack>
+      </Modal>
 
       <Modal
         opened={showNew}

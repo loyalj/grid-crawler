@@ -1,0 +1,28 @@
+.navItem {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  background: none;
+  border: none;
+  border-radius: var(--mantine-radius-sm);
+  color: var(--mantine-color-text);
+  font-size: var(--mantine-font-size-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.navItem:hover {
+  background: var(--mantine-color-default-hover);
+}
+
+.navItem[data-active] {
+  background: var(--mantine-color-default-hover);
+  color: var(--mantine-color-yellow-4);
+  font-weight: 500;
+}
+
+.content {
+  padding: 24px;
+  height: 100%;
+  overflow-y: auto;
+}

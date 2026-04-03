@@ -1,10 +1,15 @@
 import { create } from 'zustand'
-import { MapProject, Level, LevelSettings, DEFAULT_SETTINGS } from '../types/map'
+import { MapProject, Level, LevelSettings, DEFAULT_SETTINGS, ObjectDefinition, Room, ObjectPlacement, Hallway } from '../types/map'
 import { Command } from '../types/commands'
 import { AddLevelCommand, RemoveLevelCommand } from '../engine/commands'
 
 export type ViewMode  = 'topdown' | 'isometric' | 'fps'
-export type EditorTool = 'room' | 'hallway' | 'select'
+
+export type ClipboardPayload =
+  | { kind: 'room';      room: Room; hallways: Hallway[] }
+  | { kind: 'placement'; placement: ObjectPlacement }
+export type EditorTool = 'room' | 'hallway' | 'select' | 'object'
+export type NavSection = 'map' | 'objects' | 'settings'
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -24,15 +29,15 @@ function createProject(name: string, width: number, height: number): MapProject 
   const now = new Date().toISOString()
   const settings: LevelSettings = { ...DEFAULT_SETTINGS, gridWidth: width, gridHeight: height }
   return {
-    id:            crypto.randomUUID(),
+    id:             crypto.randomUUID(),
     name,
-    version:       '1.0.0',
-    createdAt:     now,
-    updatedAt:     now,
-    metadata:      {},
-    catalog:       { items: [], entities: [] },
-    overworld:     createLevel('Overworld', 0, settings),
-    dungeonLevels: [createLevel('Level 1',  1, settings)]
+    version:        '1.0.0',
+    createdAt:      now,
+    updatedAt:      now,
+    metadata:       {},
+    projectCatalog: [],
+    overworld:      createLevel('Overworld', 0, settings),
+    dungeonLevels:  [createLevel('Level 1',  1, settings)]
   }
 }
 
@@ -50,12 +55,22 @@ interface MapStore {
   undoStack:     Command[]
   redoStack:     Command[]
 
+  // Clipboard (in-app only, not system clipboard)
+  clipboard:    ClipboardPayload | null
+  setClipboard: (payload: ClipboardPayload | null) => void
+
+  // App catalog (loaded from disk at startup, read-only)
+  appCatalog: ObjectDefinition[]
+  setAppCatalog: (catalog: ObjectDefinition[]) => void
+
   // Editor UI (reactive for toolbar etc.)
-  viewMode:   ViewMode
-  activeTool: EditorTool
-  selectedId: string | null  // selected room or hallway id
-  canUndo:    boolean
-  canRedo:    boolean
+  viewMode:           ViewMode
+  activeTool:         EditorTool
+  navSection:         NavSection
+  selectedId:         string | null  // selected room, hallway, or placement id
+  armedDefinitionId:  string | null  // definition to place when object tool is active
+  canUndo:            boolean
+  canRedo:            boolean
 
   // Project lifecycle
   newProject: (name: string, width: number, height: number) => void
@@ -64,10 +79,15 @@ interface MapStore {
   // Navigation
   setActiveLevel: (levelId: string) => void
   setViewMode:    (mode: ViewMode) => void
+  setNavSection:  (section: NavSection) => void
 
   // Tool + selection
-  setActiveTool: (tool: EditorTool) => void
-  setSelected:   (id: string | null) => void
+  setActiveTool:        (tool: EditorTool) => void
+  setSelected:          (id: string | null) => void
+  setArmedDefinition:   (id: string | null) => void
+
+  // Document lifecycle helpers
+  markSaved: () => void
 
   // Command dispatch — the single mutation entry point for content edits
   dispatch: (command: Command) => void
@@ -88,11 +108,19 @@ export const useMapStore = create<MapStore>((set, get) => ({
   undoStack:     [],
   redoStack:     [],
 
-  viewMode:   'topdown',
-  activeTool: 'select',
-  selectedId: null,
-  canUndo:    false,
-  canRedo:    false,
+  clipboard:    null,
+  setClipboard: (clipboard) => set({ clipboard }),
+
+  appCatalog: [],
+  setAppCatalog: (appCatalog) => set({ appCatalog }),
+
+  viewMode:          'topdown',
+  activeTool:        'select',
+  navSection:        'map' as NavSection,
+  selectedId:        null,
+  armedDefinitionId: null,
+  canUndo:           false,
+  canRedo:           false,
 
   // ── Project lifecycle ────────────────────────────────────────────────────────
 
@@ -127,11 +155,24 @@ export const useMapStore = create<MapStore>((set, get) => ({
 
   setActiveLevel: (activeLevelId) => set({ activeLevelId, selectedId: null }),
   setViewMode:    (viewMode) => set({ viewMode }),
+  setNavSection:  (navSection) => set(navSection === 'objects'
+    ? { navSection, activeTool: 'select', armedDefinitionId: null }
+    : { navSection }),
 
   // ── Tool + selection ─────────────────────────────────────────────────────────
 
-  setActiveTool: (activeTool) => set({ activeTool, selectedId: null }),
-  setSelected:   (selectedId) => set({ selectedId }),
+  setActiveTool:      (activeTool) => set((s) => ({
+    activeTool,
+    selectedId: null,
+    // Preserve armedDefinitionId when switching TO object tool; clear it when leaving
+    armedDefinitionId: activeTool === 'object' ? s.armedDefinitionId : null
+  })),
+  setSelected:        (selectedId) => set({ selectedId }),
+  setArmedDefinition: (armedDefinitionId) => set({ armedDefinitionId }),
+
+  // ── Document lifecycle helpers ───────────────────────────────────────────────
+
+  markSaved: () => set({ isDirty: false }),
 
   // ── Command dispatch ─────────────────────────────────────────────────────────
 

@@ -1,12 +1,13 @@
 import { app, shell, BrowserWindow, ipcMain, dialog, Menu, MenuItemConstructorOptions } from 'electron'
 import { join } from 'path'
-import { readFileSync, writeFileSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync } from 'fs'
 import { autoUpdater } from 'electron-updater'
 
 const isDev = process.env.NODE_ENV !== 'production'
 const isMac = process.platform === 'darwin'
 
 let mainWindow: BrowserWindow | null = null
+let selectionKind: 'room' | 'hallway' | 'placement' | null = null
 
 function send(action: string) {
   mainWindow?.webContents.send('menu:action', action)
@@ -51,13 +52,12 @@ function buildMenu() {
     {
       label: 'Edit',
       submenu: [
-        { role: 'undo' as const },
-        { role: 'redo' as const },
+        { label: 'Undo',  accelerator: 'CmdOrCtrl+Z',       click: () => send('edit:undo') },
+        { label: 'Redo',  accelerator: 'CmdOrCtrl+Shift+Z', click: () => send('edit:redo') },
         { type: 'separator' as const },
-        { role: 'cut' as const },
-        { role: 'copy' as const },
-        { role: 'paste' as const },
-        { role: 'selectAll' as const }
+        { label: 'Cut',   accelerator: 'CmdOrCtrl+X', enabled: selectionKind === 'room' || selectionKind === 'placement', click: () => send('edit:cut') },
+        { label: 'Copy',  accelerator: 'CmdOrCtrl+C', enabled: selectionKind === 'room' || selectionKind === 'placement', click: () => send('edit:copy') },
+        { label: 'Paste', accelerator: 'CmdOrCtrl+V',       click: () => send('edit:paste') },
       ]
     },
 
@@ -109,6 +109,13 @@ function createWindow(): BrowserWindow {
     mainWindow!.show()
   })
 
+  // Ask the renderer whether it's safe to close (dirty-check).
+  // The renderer either calls app:confirmClose to proceed or does nothing to cancel.
+  mainWindow.on('close', (e) => {
+    e.preventDefault()
+    mainWindow!.webContents.send('menu:action', 'app:beforeClose')
+  })
+
   mainWindow.on('closed', () => {
     mainWindow = null
   })
@@ -149,10 +156,23 @@ ipcMain.on('window:setTitle', (_event, title: string) => {
   mainWindow?.setTitle(title)
 })
 
-// IPC: Open .map file
+// IPC: Selection kind changed — rebuild menu to update copy/cut enabled state
+ipcMain.on('menu:selectionKind', (_event, kind: typeof selectionKind) => {
+  selectionKind = kind
+  buildMenu()
+})
+
+// IPC: Renderer confirmed it's safe to close
+ipcMain.on('app:confirmClose', () => {
+  mainWindow?.destroy()
+})
+
+
+// IPC: Open .crwl file
 ipcMain.handle('dialog:openFile', async () => {
-  const result = await dialog.showOpenDialog({
-    filters: [{ name: 'Grid Crawler Map', extensions: ['map'] }],
+  if (!mainWindow) return null
+  const result = await dialog.showOpenDialog(mainWindow, {
+    filters: [{ name: 'Grid Crawler Map', extensions: ['crwl'] }],
     properties: ['openFile']
   })
   if (result.canceled) return null
@@ -163,9 +183,10 @@ ipcMain.handle('dialog:openFile', async () => {
 
 // IPC: Save file dialog (returns chosen path)
 ipcMain.handle('dialog:saveFile', async (_event, defaultName: string) => {
-  const result = await dialog.showSaveDialog({
+  if (!mainWindow) return null
+  const result = await dialog.showSaveDialog(mainWindow, {
     defaultPath: defaultName,
-    filters: [{ name: 'Grid Crawler Map', extensions: ['map'] }]
+    filters: [{ name: 'Grid Crawler Map', extensions: ['crwl'] }]
   })
   if (result.canceled) return null
   return result.filePath
@@ -175,4 +196,72 @@ ipcMain.handle('dialog:saveFile', async (_event, defaultName: string) => {
 ipcMain.handle('fs:writeFile', async (_event, filePath: string, data: ArrayBuffer) => {
   writeFileSync(filePath, Buffer.from(data))
   return true
+})
+
+// ── App catalog ───────────────────────────────────────────────────────────────
+
+/**
+ * Resolves the resources/catalog directory.
+ * In development:  <repo>/resources/catalog
+ * In production:   <app>/resources/catalog  (copied by electron-builder)
+ */
+function getCatalogDir(): string {
+  if (isDev) {
+    return join(app.getAppPath(), 'resources', 'catalog')
+  }
+  return join(process.resourcesPath, 'catalog')
+}
+
+/**
+ * Loads tokens.json and props.json from the catalog directory, reads each
+ * referenced SVG into its visual.iconContent field, and returns the merged
+ * array. Missing files are skipped with a console warning.
+ */
+ipcMain.handle('catalog:loadApp', async () => {
+  const catalogDir = getCatalogDir()
+
+  function loadJson(filename: string): unknown[] {
+    const p = join(catalogDir, filename)
+    if (!existsSync(p)) { console.warn(`[catalog] missing ${p}`); return [] }
+    try { return JSON.parse(readFileSync(p, 'utf8')) }
+    catch (e) { console.warn(`[catalog] failed to parse ${filename}:`, e); return [] }
+  }
+
+  const tokens = loadJson('tokens.json') as Array<Record<string, unknown>>
+  const props  = loadJson('props.json')  as Array<Record<string, unknown>>
+
+  // Inline SVG content for token definitions
+  for (const def of tokens) {
+    try {
+      const visual = def.visual as Record<string, unknown>
+      if (typeof visual?.icon === 'string') {
+        const svgPath = join(catalogDir, visual.icon as string)
+        if (existsSync(svgPath)) {
+          visual.iconContent = readFileSync(svgPath, 'utf8')
+        } else {
+          console.warn(`[catalog] missing SVG: ${svgPath}`)
+          visual.iconContent = ''
+        }
+      }
+    } catch (e) {
+      console.warn('[catalog] error reading SVG for', def.id, e)
+    }
+  }
+
+  // For props, resolve the texture path to an absolute file:// URL
+  for (const def of props) {
+    try {
+      const visual = def.visual as Record<string, unknown>
+      if (typeof visual?.texture === 'string') {
+        const texPath = join(catalogDir, visual.texture as string)
+        visual.textureUrl = existsSync(texPath)
+          ? `file://${texPath.replace(/\\/g, '/')}`
+          : ''
+      }
+    } catch (e) {
+      console.warn('[catalog] error resolving texture for', def.id, e)
+    }
+  }
+
+  return [...tokens, ...props]
 })

@@ -1,6 +1,6 @@
-import { Room, Hallway, Level, Waypoint } from '../types/map'
-import { computePath, resolveExitPoints, nearestWallExit } from './hallwayPath'
-import { useMapStore } from '../store/mapStore'
+import { Room, Hallway, Level, Waypoint, ObjectPlacement } from '../types/map'
+import { computePath, expandPath, resolveExitPoints, nearestWallExit } from './hallwayPath'
+import { useMapStore, ClipboardPayload } from '../store/mapStore'
 import { MapRenderer, ResizeHandle } from './MapRenderer'
 import {
   AddRoomCommand,
@@ -10,7 +10,10 @@ import {
   AddHallwayCommand,
   RemoveHallwayCommand,
   UpdateHallwayExitsCommand,
-  UpdateHallwayWaypointsCommand
+  UpdateHallwayWaypointsCommand,
+  PlaceObjectCommand,
+  MoveObjectCommand,
+  RemoveObjectCommand
 } from './commands'
 
 // ── Context menu types ────────────────────────────────────────────────────────
@@ -19,8 +22,14 @@ export type ContextMenuAction =
   | { kind: 'add_waypoint';    hallwayId: string; col: number; row: number }
   | { kind: 'remove_waypoint'; hallwayId: string; waypointIndex: number }
   | { kind: 'delete_hallway';  hallwayId: string }
+  | { kind: 'copy_room';       roomId: string }
+  | { kind: 'cut_room';        roomId: string }
   | { kind: 'delete_room';     roomId: string }
   | { kind: 'delete_level';    levelId: string }
+  | { kind: 'copy_object';     placementId: string }
+  | { kind: 'cut_object';      placementId: string }
+  | { kind: 'delete_object';   placementId: string }
+  | { kind: 'paste';           col: number; row: number; fx: number; fy: number }
 
 export interface ContextMenuPayload {
   screenX: number
@@ -40,6 +49,7 @@ type InteractionState =
   | { kind: 'hallway_placing';  roomAId: string }
   | { kind: 'hallway_endpoint'; hallwayId: string; end: 'A' | 'B'; room: { id: string; x: number; y: number; width: number; height: number }; origExitA?: { x: number; y: number }; origExitB?: { x: number; y: number } }
   | { kind: 'hallway_waypoint'; hallwayId: string; waypointIndex: number; origWaypoints: Waypoint[] }
+  | { kind: 'object_moving';    placementId: string; origX: number; origY: number; startFx: number; startFy: number }
 
 // ── Handle hit tolerance (in grid cells) ─────────────────────────────────────
 
@@ -47,8 +57,17 @@ const HANDLE_RADIUS = 0.6
 
 // ── InputManager ─────────────────────────────────────────────────────────────
 
+const PAN_THRESHOLD_PX = 4
+
 export class InputManager {
   private state: InteractionState = { kind: 'idle' }
+  private rightClickOrigin: { x: number; y: number; e: MouseEvent } | null = null
+  private snapToGrid = false
+
+  setSnapToGrid(snap: boolean): void { this.snapToGrid = snap }
+
+  private snapFx(fx: number): number { return this.snapToGrid ? Math.floor(fx) + 0.5 : fx }
+  private snapFy(fy: number): number { return this.snapToGrid ? Math.floor(fy) + 0.5 : fy }
 
   private _onMousedown:    (e: MouseEvent) => void
   private _onMousemove:    (e: MouseEvent) => void
@@ -135,7 +154,7 @@ export class InputManager {
   // ── Mouse handlers ────────────────────────────────────────────────────────────
 
   private handleMousedown(e: MouseEvent): void {
-    if (e.button === 2) { this.handleRightClick(e); return }
+    if (e.button === 2) { this.rightClickOrigin = { x: e.clientX, y: e.clientY, e }; return }
     if (e.button !== 0) return
     const c = this.cell(e)
     if (!c) return
@@ -221,6 +240,22 @@ export class InputManager {
           }
         }
 
+        // Hit-test placements first (they render above the floor)
+        const placement = this.hitPlacement(c.fx, c.fy, level)
+        if (placement) {
+          store.setSelected(placement.id)
+          this.renderer.setSelection(placement.id)
+          this.state = {
+            kind:        'object_moving',
+            placementId: placement.id,
+            origX:       placement.x,
+            origY:       placement.y,
+            startFx:     c.fx,
+            startFy:     c.fy
+          }
+          break
+        }
+
         const room = this.hitRoom(c.col, c.row, level)
         if (room) {
           store.setSelected(room.id)
@@ -244,6 +279,23 @@ export class InputManager {
           store.setSelected(null)
           this.renderer.setSelection(null)
         }
+        break
+      }
+
+      case 'object': {
+        const { armedDefinitionId, activeLevelId, dispatch, appCatalog, project } = store
+        if (!armedDefinitionId || !activeLevelId) break
+        const allDefs = [...(appCatalog ?? []), ...(project?.projectCatalog ?? [])]
+        const def = allDefs.find((d) => d.id === armedDefinitionId)
+        if (!def) break
+        const px = this.snapFx(c.fx)
+        const py = this.snapFy(c.fy)
+        const placement: ObjectPlacement = def.kind === 'token'
+          ? { id: crypto.randomUUID(), definitionId: armedDefinitionId, kind: 'token',
+              x: px, y: py, propertyValues: {} }
+          : { id: crypto.randomUUID(), definitionId: armedDefinitionId, kind: 'prop',
+              x: px, y: py, rotation: 0, propertyValues: {} }
+        dispatch(new PlaceObjectCommand(activeLevelId, placement))
         break
       }
 
@@ -280,6 +332,15 @@ export class InputManager {
   }
 
   private handleMousemove(e: MouseEvent): void {
+    // If right button is held and moved beyond threshold, treat as pan — suppress context menu
+    if (this.rightClickOrigin) {
+      const dx = e.clientX - this.rightClickOrigin.x
+      const dy = e.clientY - this.rightClickOrigin.y
+      if (Math.sqrt(dx * dx + dy * dy) > PAN_THRESHOLD_PX) {
+        this.rightClickOrigin = null
+      }
+    }
+
     const c = this.cell(e)
     if (!c) return
 
@@ -333,6 +394,22 @@ export class InputManager {
         this.renderer.setHallwayPreview(this.state.roomAId, c.col, c.row)
         break
       }
+
+      case 'object_moving': {
+        const { origX, origY, startFx, startFy } = this.state
+        this.renderer.setObjectMovePreview(
+          this.state.placementId,
+          this.snapFx(origX + (c.fx - startFx)),
+          this.snapFy(origY + (c.fy - startFy))
+        )
+        break
+      }
+    }
+
+    // Move placement ghost when object tool is armed
+    const { activeTool, armedDefinitionId } = this.getStore()
+    if (activeTool === 'object' && armedDefinitionId) {
+      this.renderer.movePlacementGhost(this.snapFx(c.fx), this.snapFy(c.fy))
     }
 
     // Hover hit-test (only in idle state to avoid flicker)
@@ -351,6 +428,14 @@ export class InputManager {
   }
 
   private handleMouseup(e: MouseEvent): void {
+    if (e.button === 2) {
+      // Fire context menu only if the right button wasn't dragged
+      if (this.rightClickOrigin) {
+        this.handleRightClick(this.rightClickOrigin.e)
+        this.rightClickOrigin = null
+      }
+      return
+    }
     if (e.button !== 0) {
       this.state = { kind: 'idle' }
       return
@@ -472,12 +557,28 @@ export class InputManager {
         this.state = { kind: 'idle' }
         break
       }
+
+      case 'object_moving': {
+        const { placementId, origX, origY, startFx, startFy } = this.state
+        if (c && store.activeLevelId) {
+          const newX = this.snapFx(origX + (c.fx - startFx))
+          const newY = this.snapFy(origY + (c.fy - startFy))
+          if (newX !== origX || newY !== origY) {
+            store.dispatch(new MoveObjectCommand(store.activeLevelId, placementId, { x: origX, y: origY }, { x: newX, y: newY }))
+          }
+          this.renderer.setSelection(placementId)
+        }
+        this.renderer.clearObjectMovePreview()
+        this.state = { kind: 'idle' }
+        break
+      }
     }
   }
 
   private handleMouseleave(): void {
     this.renderer.setHover(null)
     this.renderer.clearEndpointPreview()
+    this.renderer.hidePlacementGhost()
   }
 
   private handleRightClick(e: MouseEvent): void {
@@ -488,7 +589,26 @@ export class InputManager {
     const level = this.getActiveLevel()
     if (!level) return
 
-    // Rooms take priority — check them first
+    // Placements take top priority (they render above the floor)
+    const placement = this.hitPlacement(c.fx, c.fy, level)
+    if (placement) {
+      if (placement.id !== store.selectedId) {
+        store.setSelected(placement.id)
+        this.renderer.setSelection(placement.id)
+      }
+      this.onContextMenu({
+        screenX: e.clientX,
+        screenY: e.clientY,
+        items: [
+          { kind: 'copy_object',   placementId: placement.id },
+          { kind: 'cut_object',    placementId: placement.id },
+          { kind: 'delete_object', placementId: placement.id },
+        ]
+      })
+      return
+    }
+
+    // Rooms take priority over hallways
     const room = this.hitRoom(c.col, c.row, level)
     if (room) {
       if (room.id !== store.selectedId) {
@@ -498,7 +618,11 @@ export class InputManager {
       this.onContextMenu({
         screenX: e.clientX,
         screenY: e.clientY,
-        items: [{ kind: 'delete_room', roomId: room.id }]
+        items: [
+          { kind: 'copy_room',   roomId: room.id },
+          { kind: 'cut_room',    roomId: room.id },
+          { kind: 'delete_room', roomId: room.id },
+        ]
       })
       return
     }
@@ -515,14 +639,27 @@ export class InputManager {
       if (!roomA || !roomB) {
         hallway = null
       } else {
-        const path = computePath(roomA, roomB, hallway.waypoints, hallway.exitA, hallway.exitB)
+        const path = expandPath(
+          computePath(roomA, roomB, hallway.waypoints, hallway.exitA, hallway.exitB),
+          hallway.width
+        )
         if (!path.some((p) => p.x === c.col && p.y === c.row)) hallway = null
       }
     }
 
     // Fall back to any hallway under the cursor
     if (!hallway) hallway = this.hitHallway(c.col, c.row, level)
-    if (!hallway) return
+    if (!hallway) {
+      // Empty grid — offer paste if clipboard has content
+      if (store.clipboard) {
+        this.onContextMenu({
+          screenX: e.clientX,
+          screenY: e.clientY,
+          items: [{ kind: 'paste', col: c.col, row: c.row, fx: c.fx, fy: c.fy }]
+        })
+      }
+      return
+    }
 
     // Select the hallway if it wasn't already
     if (hallway.id !== selectedId) {
@@ -551,23 +688,17 @@ export class InputManager {
     const ctrl  = e.ctrlKey || e.metaKey
 
     if (ctrl && e.key === 'z' && !e.shiftKey) {
-      e.preventDefault()
-      store.undo()
-      // Re-sync renderer after undo
-      const level = this.getActiveLevel()
-      if (level) this.renderer.loadLevel(level)
-      this.syncSelectionAfterCommand()
-      return
+      e.preventDefault(); this.triggerUndo(); return
     }
 
     if (ctrl && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
-      e.preventDefault()
-      store.redo()
-      const level = this.getActiveLevel()
-      if (level) this.renderer.loadLevel(level)
-      this.syncSelectionAfterCommand()
-      return
+      e.preventDefault(); this.triggerRedo(); return
     }
+
+    if (ctrl && e.key === 'c') { e.preventDefault(); this.copy();  return }
+    if (ctrl && e.key === 'x') { e.preventDefault(); this.cut();   return }
+    if (ctrl && e.key === 'v') { e.preventDefault(); this.paste(); return }
+
 
     if (e.key === 'Delete' || e.key === 'Backspace') {
       const { selectedId, activeLevelId } = store
@@ -587,6 +718,13 @@ export class InputManager {
         store.dispatch(new RemoveHallwayCommand(activeLevelId, hallway))
         store.setSelected(null)
         this.renderer.setSelection(null)
+        return
+      }
+      const placement = level.placements.find((p) => p.id === selectedId)
+      if (placement) {
+        store.dispatch(new RemoveObjectCommand(activeLevelId, placement))
+        store.setSelected(null)
+        this.renderer.setSelection(null)
       }
     }
 
@@ -600,6 +738,9 @@ export class InputManager {
           if (this.state.kind === 'hallway_placing') {
             this.renderer.clearHallwayPreview()
             this.state = { kind: 'idle' }
+          }
+          if (store.activeTool === 'object') {
+            this.switchTool('select')
           }
           store.setSelected(null)
           this.renderer.setSelection(null)
@@ -706,13 +847,39 @@ export class InputManager {
     return hits[(currentIdx + 1) % hits.length]
   }
 
+  private hitPlacement(fx: number, fy: number, level: Level): ObjectPlacement | null {
+    const store = this.getStore()
+    const allDefs = [...(store.appCatalog ?? []), ...(store.project?.projectCatalog ?? [])]
+    // Iterate in reverse so last-placed is top priority
+    for (let i = level.placements.length - 1; i >= 0; i--) {
+      const p = level.placements[i]
+      const def = allDefs.find((d) => d.id === p.definitionId)
+      if (!def) continue
+      if (def.kind === 'token') {
+        // Circular hit radius of 0.42 (matches the rendered circle)
+        const dx = fx - p.x
+        const dy = fy - p.y
+        if (Math.sqrt(dx * dx + dy * dy) <= 0.5) return p
+      } else {
+        // Rectangular hit box
+        const hw = def.visual.naturalWidth  / 2
+        const hh = def.visual.naturalHeight / 2
+        if (fx >= p.x - hw && fx <= p.x + hw && fy >= p.y - hh && fy <= p.y + hh) return p
+      }
+    }
+    return null
+  }
+
   private hitHallwayAll(col: number, row: number, level: Level): Hallway[] {
     const hits: Hallway[] = []
     for (const hallway of level.hallways) {
       const roomA = level.rooms.find((r) => r.id === hallway.roomAId)
       const roomB = level.rooms.find((r) => r.id === hallway.roomBId)
       if (!roomA || !roomB) continue
-      const path = computePath(roomA, roomB, hallway.waypoints, hallway.exitA, hallway.exitB)
+      const path = expandPath(
+        computePath(roomA, roomB, hallway.waypoints, hallway.exitA, hallway.exitB),
+        hallway.width
+      )
       if (path.some((p) => p.x === col && p.y === row)) hits.push(hallway)
     }
     return hits
@@ -733,12 +900,159 @@ export class InputManager {
     }
     const exists =
       level.rooms.some((r) => r.id === selectedId) ||
-      level.hallways.some((h) => h.id === selectedId)
+      level.hallways.some((h) => h.id === selectedId) ||
+      level.placements.some((p) => p.id === selectedId)
     if (!exists) {
       useMapStore.getState().setSelected(null)
       this.renderer.setSelection(null)
     } else {
       this.renderer.setSelection(selectedId)
+    }
+  }
+
+  // ── Public undo/redo (called from menu) ──────────────────────────────────────
+
+  triggerUndo(): void {
+    const store = this.getStore()
+    store.undo()
+    const level = this.getActiveLevel()
+    if (level) this.renderer.loadLevel(level)
+    this.syncSelectionAfterCommand()
+  }
+
+  triggerRedo(): void {
+    const store = this.getStore()
+    store.redo()
+    const level = this.getActiveLevel()
+    if (level) this.renderer.loadLevel(level)
+    this.syncSelectionAfterCommand()
+  }
+
+  // ── Public clipboard operations (called from keyboard and menu) ──────────────
+
+  copy(): void {
+    const store = this.getStore()
+    const { selectedId } = store
+    if (!selectedId) return
+    const level = this.getActiveLevel()
+    if (!level) return
+
+    const room = level.rooms.find((r) => r.id === selectedId)
+    if (room) {
+      // Copy carries no hallways — the original room still exists with its connections
+      store.setClipboard({ kind: 'room', room, hallways: [] })
+      return
+    }
+    const placement = level.placements.find((p) => p.id === selectedId)
+    if (placement) { store.setClipboard({ kind: 'placement', placement }) }
+    // Hallways: not copyable
+  }
+
+  cut(): void {
+    const store = this.getStore()
+    const { selectedId, activeLevelId } = store
+    if (!selectedId || !activeLevelId) return
+    const level = this.getActiveLevel()
+    if (!level) return
+
+    const room = level.rooms.find((r) => r.id === selectedId)
+    if (room) {
+      // Capture connected hallways before RemoveRoomCommand strips them
+      const hallways = level.hallways.filter(
+        (h) => h.roomAId === room.id || h.roomBId === room.id
+      )
+      store.setClipboard({ kind: 'room', room, hallways })
+      store.dispatch(new RemoveRoomCommand(activeLevelId, room))
+      store.setSelected(null)
+      this.renderer.setSelection(null)
+      return
+    }
+    const placement = level.placements.find((p) => p.id === selectedId)
+    if (placement) {
+      store.setClipboard({ kind: 'placement', placement })
+      store.dispatch(new RemoveObjectCommand(activeLevelId, placement))
+      store.setSelected(null)
+      this.renderer.setSelection(null)
+    }
+  }
+
+  paste(): void {
+    const store = this.getStore()
+    const { clipboard, activeLevelId } = store
+    if (!clipboard || !activeLevelId) return
+
+    if (clipboard.kind === 'room') {
+      const newId   = crypto.randomUUID()
+      const newRoom: Room = {
+        ...clipboard.room,
+        id: newId,
+        x:  clipboard.room.x + 2,
+        y:  clipboard.room.y + 2
+      }
+      store.dispatch(new AddRoomCommand(activeLevelId, newRoom))
+      for (const h of clipboard.hallways) {
+        store.dispatch(new AddHallwayCommand(activeLevelId, {
+          ...h,
+          id:      crypto.randomUUID(),
+          roomAId: h.roomAId === clipboard.room.id ? newId : h.roomAId,
+          roomBId: h.roomBId === clipboard.room.id ? newId : h.roomBId,
+        }))
+      }
+      store.setSelected(newId)
+      this.renderer.setSelection(newId)
+      return
+    }
+
+    if (clipboard.kind === 'placement') {
+      const newPlacement: ObjectPlacement = {
+        ...clipboard.placement,
+        id: crypto.randomUUID(),
+        x:  clipboard.placement.x + 1,
+        y:  clipboard.placement.y + 1
+      }
+      store.dispatch(new PlaceObjectCommand(activeLevelId, newPlacement))
+      store.setSelected(newPlacement.id)
+      this.renderer.setSelection(newPlacement.id)
+    }
+  }
+
+  /** Paste at a specific grid position (from right-click context menu). */
+  pasteAt(col: number, row: number, fx: number, fy: number): void {
+    const store = this.getStore()
+    const { clipboard, activeLevelId } = store
+    if (!clipboard || !activeLevelId) return
+    const { w: gw, h: gh } = this.gridBounds()
+
+    if (clipboard.kind === 'room') {
+      const r = clipboard.room
+      const x = Math.max(0, Math.min(col - Math.floor(r.width  / 2), gw - r.width))
+      const y = Math.max(0, Math.min(row - Math.floor(r.height / 2), gh - r.height))
+      const newId = crypto.randomUUID()
+      const newRoom: Room = { ...r, id: newId, x, y }
+      store.dispatch(new AddRoomCommand(activeLevelId, newRoom))
+      for (const h of clipboard.hallways) {
+        store.dispatch(new AddHallwayCommand(activeLevelId, {
+          ...h,
+          id:      crypto.randomUUID(),
+          roomAId: h.roomAId === r.id ? newId : h.roomAId,
+          roomBId: h.roomBId === r.id ? newId : h.roomBId,
+        }))
+      }
+      store.setSelected(newId)
+      this.renderer.setSelection(newId)
+      return
+    }
+
+    if (clipboard.kind === 'placement') {
+      const newPlacement: ObjectPlacement = {
+        ...clipboard.placement,
+        id: crypto.randomUUID(),
+        x:  Math.max(0, Math.min(fx, gw)),
+        y:  Math.max(0, Math.min(fy, gh)),
+      }
+      store.dispatch(new PlaceObjectCommand(activeLevelId, newPlacement))
+      store.setSelected(newPlacement.id)
+      this.renderer.setSelection(newPlacement.id)
     }
   }
 

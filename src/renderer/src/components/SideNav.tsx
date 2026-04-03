@@ -1,12 +1,10 @@
-import { useState, useEffect } from 'react'
-import { Text } from '@mantine/core'
-import { useMapStore } from '../store/mapStore'
+import { useEffect } from 'react'
+import { Text } from '@mantine/core' // used in header
+import { useMapStore, NavSection } from '../store/mapStore'
 import { LevelNav } from './LevelNav'
+import { ObjectsNav } from './ObjectsNav'
+import { SettingsNav } from './SettingsPanel'
 import classes from './SideNav.module.css'
-
-// ── Section type ──────────────────────────────────────────────────────────────
-
-type Section = 'map' | 'objects' | 'settings'
 
 // ── Placeholder icons ─────────────────────────────────────────────────────────
 // Once you have SVG files, replace each with:
@@ -49,7 +47,7 @@ function IconSettings({ className }: { className?: string }) {
 // ── Rail items ────────────────────────────────────────────────────────────────
 
 const RAIL_ITEMS: Array<{
-  id:    Section
+  id:    NavSection
   label: string
   Icon:  React.FC<{ className?: string }>
 }> = [
@@ -61,13 +59,26 @@ const RAIL_ITEMS: Array<{
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function SideNav() {
-  const project    = useMapStore((s) => s.project)
-  const selectedId = useMapStore((s) => s.selectedId)
-  const [activeSection, setActiveSection] = useState<Section>('map')
+  const project         = useMapStore((s) => s.project)
+  const selectedId      = useMapStore((s) => s.selectedId)
+  const activeLevelId   = useMapStore((s) => s.activeLevelId)
+  const activeSection   = useMapStore((s) => s.navSection)
+  const setActiveSection = useMapStore((s) => s.setNavSection)
 
+  // When something is selected on the canvas, switch to the right panel.
+  // Placements are identified by checking the active level's placements list.
   useEffect(() => {
-    if (selectedId) setActiveSection('map')
-  }, [selectedId])
+    if (!selectedId) return
+    const state = useMapStore.getState()
+    const { project, activeLevelId } = state
+    if (!project || !activeLevelId) return
+    const level = project.overworld.id === activeLevelId
+      ? project.overworld
+      : project.dungeonLevels.find((l) => l.id === activeLevelId)
+    if (!level) return
+    const isPlacement = level.placements.some((p) => p.id === selectedId)
+    setActiveSection(isPlacement ? 'objects' : 'map')
+  }, [selectedId, activeLevelId])
 
   return (
     <div className={classes.sidenav}>
@@ -101,12 +112,8 @@ export function SideNav() {
 
         <div className={classes.panel}>
           {activeSection === 'map'      && <LevelNav />}
-          {activeSection === 'objects'  && (
-            <Text size="xs" c="dimmed" fs="italic" p="xs">Objects — coming soon</Text>
-          )}
-          {activeSection === 'settings' && (
-            <Text size="xs" c="dimmed" fs="italic" p="xs">Settings — coming soon</Text>
-          )}
+          {activeSection === 'objects'  && <ObjectsNav />}
+          {activeSection === 'settings' && <SettingsNav />}
         </div>
 
       </div>

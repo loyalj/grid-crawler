@@ -98,6 +98,50 @@ export function nearestWallExit(
 }
 
 /**
+ * Expands a 1-cell-wide centerline path to `width` cells by offsetting
+ * perpendicular to the direction of travel. Corner cells expand in both
+ * axes so the turn is filled flush.
+ */
+export function expandPath(
+  path:  Array<{ x: number; y: number }>,
+  width: number
+): Array<{ x: number; y: number }> {
+  if (width <= 1 || path.length === 0) return path
+
+  const half = Math.floor(width / 2)
+  const seen = new Set<string>()
+  const result: Array<{ x: number; y: number }> = []
+
+  function add(x: number, y: number) {
+    const key = `${x},${y}`
+    if (!seen.has(key)) { seen.add(key); result.push({ x, y }) }
+  }
+
+  for (let i = 0; i < path.length; i++) {
+    const cell = path[i]
+    const prev = path[i - 1]
+    const next = path[i + 1]
+
+    // Determine direction(s) of travel at this cell
+    const axes = new Set<'h' | 'v'>()
+    if (prev) { if (prev.x !== cell.x) axes.add('h'); if (prev.y !== cell.y) axes.add('v') }
+    if (next) { if (next.x !== cell.x) axes.add('h'); if (next.y !== cell.y) axes.add('v') }
+    if (axes.size === 0) axes.add('h')
+
+    add(cell.x, cell.y)
+    for (const axis of axes) {
+      for (let o = 1; o <= half; o++) {
+        // Moving horizontally → expand vertically, and vice-versa
+        if (axis === 'h') { add(cell.x, cell.y - o); add(cell.x, cell.y + o) }
+        else              { add(cell.x - o, cell.y); add(cell.x + o, cell.y) }
+      }
+    }
+  }
+
+  return result
+}
+
+/**
  * Computes the full cell path for a hallway. Respects pinned exit cells
  * (`exitA`/`exitB`) and user-placed waypoints.
  */

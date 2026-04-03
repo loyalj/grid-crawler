@@ -1,15 +1,18 @@
-import { Stack, Text, Divider, Select, NumberInput } from '@mantine/core'
+import { Stack, Text, Divider, Select, NumberInput, TextInput } from '@mantine/core'
 import { useMapStore } from '../store/mapStore'
 import {
   Room, Hallway, Level,
   LevelSettings, SurfaceSettings,
-  FloorMaterial, WallMaterial
+  FloorMaterial, WallMaterial,
+  ObjectPlacement, ObjectDefinition, TokenDefinition, PropPlacement
 } from '../types/map'
 import {
   UpdateRoomSettingsCommand,
   UpdateHallwaySettingsCommand,
   UpdateHallwayWidthCommand,
-  RerouteHallwayCommand
+  RerouteHallwayCommand,
+  UpdateObjectPropertiesCommand,
+  RotatePropCommand
 } from '../engine/commands'
 import classes from './DetailsPanel.module.css'
 
@@ -391,6 +394,107 @@ function HallwayDetails({
   )
 }
 
+// ── Object / Prop details ─────────────────────────────────────────────────────
+
+const ROTATION_OPTIONS = [
+  { value: '0',   label: '0°'   },
+  { value: '90',  label: '90°'  },
+  { value: '180', label: '180°' },
+  { value: '270', label: '270°' },
+]
+
+function ObjectDetails({
+  placement,
+  def,
+  levelId,
+}: {
+  placement: ObjectPlacement
+  def:       ObjectDefinition
+  levelId:   string
+}) {
+  // Merge definition property defaults with instance overrides
+  const merged: Record<string, string> = {}
+  for (const p of def.properties) merged[p.name] = p.defaultValue
+  for (const [k, v] of Object.entries(placement.propertyValues)) merged[k] = v
+
+  function onPropertyChange(name: string, value: string) {
+    const newValues = { ...placement.propertyValues, [name]: value }
+    useMapStore.getState().dispatch(
+      new UpdateObjectPropertiesCommand(levelId, placement.id, placement.propertyValues, newValues)
+    )
+  }
+
+  function onRotation(v: string | null) {
+    if (placement.kind !== 'prop') return
+    const rot = parseInt(v ?? '0') as PropPlacement['rotation']
+    if (rot === placement.rotation) return
+    useMapStore.getState().dispatch(
+      new RotatePropCommand(levelId, placement.id, placement.rotation, rot)
+    )
+  }
+
+  const kindLabel = def.kind === 'token' ? 'Token' : 'Prop'
+  const catLabel  = def.category.charAt(0).toUpperCase() + def.category.slice(1)
+
+  return (
+    <Stack gap={0}>
+      <div className={classes.header}>
+        <Text className={classes.title} title={def.name}>{def.name}</Text>
+        <Text size="xs" c="dimmed">{kindLabel} · {catLabel}</Text>
+      </div>
+      <Stack gap={0} p={8}>
+
+        <Text className={classes.sectionLabel}>Position</Text>
+        <Row label="X" value={placement.x.toFixed(2)} />
+        <Row label="Y" value={placement.y.toFixed(2)} />
+
+        {placement.kind === 'prop' && (
+          <>
+            <Divider my={8} />
+            <Text className={classes.sectionLabel}>Transform</Text>
+            <ControlRow label="Rotation">
+              <Select
+                size="xs"
+                data={ROTATION_OPTIONS}
+                value={String(placement.rotation)}
+                onChange={onRotation}
+                allowDeselect={false}
+                comboboxProps={{ withinPortal: true }}
+                classNames={{ input: classes.selectInput }}
+              />
+            </ControlRow>
+          </>
+        )}
+
+        {def.properties.length > 0 && (
+          <>
+            <Divider my={8} />
+            <Text className={classes.sectionLabel}>Properties</Text>
+            {def.properties.map((prop) => (
+              <ControlRow key={prop.name} label={prop.name}>
+                <TextInput
+                  size="xs"
+                  value={merged[prop.name] ?? ''}
+                  onChange={(e) => onPropertyChange(prop.name, e.currentTarget.value)}
+                  classNames={{ input: classes.selectInput }}
+                />
+              </ControlRow>
+            ))}
+          </>
+        )}
+
+        {def.description && (
+          <>
+            <Divider my={8} />
+            <Text className={classes.sectionLabel}>Description</Text>
+            <Text size="xs" c="dimmed" style={{ whiteSpace: 'pre-wrap' }}>{def.description}</Text>
+          </>
+        )}
+      </Stack>
+    </Stack>
+  )
+}
+
 // ── Level details (read-only) ─────────────────────────────────────────────────
 
 function LevelDetails({ level }: { level: Level }) {
@@ -424,6 +528,7 @@ export function DetailsPanel() {
   const project       = useMapStore((s) => s.project)
   const activeLevelId = useMapStore((s) => s.activeLevelId)
   const selectedId    = useMapStore((s) => s.selectedId)
+  const appCatalog    = useMapStore((s) => s.appCatalog)
 
   const activeLevel = project
     ? activeLevelId === project.overworld.id
@@ -472,6 +577,19 @@ export function DetailsPanel() {
         />
       </div>
     )
+  }
+
+  const placement = activeLevel.placements.find((p) => p.id === selectedId)
+  if (placement) {
+    const catalog = [...appCatalog, ...(project.projectCatalog ?? [])]
+    const def = catalog.find((d) => d.id === placement.definitionId)
+    if (def) {
+      return (
+        <div className={classes.panel}>
+          <ObjectDetails placement={placement} def={def} levelId={activeLevelId} />
+        </div>
+      )
+    }
   }
 
   return (

@@ -1,8 +1,8 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { PointerLockControls } from 'three/examples/jsm/controls/PointerLockControls.js'
-import { Level, Room, Hallway, SurfaceSettings, FloorMaterial, WallMaterial } from '../types/map'
-import { computePath, resolveExitPoints } from './hallwayPath'
+import { Level, Room, Hallway, SurfaceSettings, FloorMaterial, WallMaterial, ObjectDefinition, TokenDefinition, PropDefinition } from '../types/map'
+import { computePath, expandPath, resolveExitPoints } from './hallwayPath'
 
 export type ViewMode = 'topdown' | 'isometric' | 'fps'
 
@@ -60,9 +60,16 @@ export class MapRenderer {
   private mapGroup:       THREE.Group
   private wallGroup:      THREE.Group
   private gridGroup:      THREE.Group
+  private objectsGroup:   THREE.Group
   private selectionGroup: THREE.Group
   private overlayGroup:   THREE.Group  // ghost, move-preview, endpoint-preview
   private hoverGroup:     THREE.Group  // rebuilt each setHover call
+
+  // Catalog reference for object rendering
+  private catalog: ObjectDefinition[] = []
+
+  // Placement ghost (follows cursor when object tool is armed)
+  private placementGhostGroup: THREE.Group
 
   // Overlay meshes (pre-created, repositioned on demand)
   private hoverRoomMesh:   THREE.Mesh   // reusable single quad for room hover
@@ -72,6 +79,10 @@ export class MapRenderer {
 
   // Current level reference for overlay positioning
   private currentLevel: Level | null = null
+
+  // App settings — persisted across loadLevel calls
+  private gridSettings = { visible: true, color: '#c8c8c8', opacity: 0.85 }
+  private gridMaterial: THREE.ShaderMaterial | null = null
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas   = canvas
@@ -85,11 +96,15 @@ export class MapRenderer {
     this.mapGroup       = new THREE.Group()
     this.wallGroup      = new THREE.Group()
     this.gridGroup      = new THREE.Group()
+    this.objectsGroup   = new THREE.Group()
     this.selectionGroup = new THREE.Group()
     this.overlayGroup   = new THREE.Group()
     this.hoverGroup     = new THREE.Group()
 
-    this.scene.add(this.mapGroup, this.wallGroup, this.gridGroup, this.selectionGroup, this.hoverGroup, this.overlayGroup)
+    this.placementGhostGroup = new THREE.Group()
+    this.placementGhostGroup.visible = false
+
+    this.scene.add(this.mapGroup, this.wallGroup, this.gridGroup, this.objectsGroup, this.selectionGroup, this.hoverGroup, this.overlayGroup, this.placementGhostGroup)
 
     // Pre-create overlay meshes (scaled on demand)
     this.hoverRoomMesh        = this.makeFlatQuad(HOVER_COLOR,     0.12)
@@ -240,11 +255,16 @@ export class MapRenderer {
 
   // ── Level rendering ───────────────────────────────────────────────────────────
 
+  setCatalog(catalog: ObjectDefinition[]): void {
+    this.catalog = catalog
+  }
+
   loadLevel(level: Level): void {
     this.currentLevel = level
     this.disposeGroup(this.mapGroup)
     this.disposeGroup(this.wallGroup)
     this.disposeGroup(this.gridGroup)
+    this.disposeGroup(this.objectsGroup)
     this.selectionGroup.clear()  // selection is invalidated on full reload
 
     const { gridWidth, gridHeight, wallMaterial } = level.settings
@@ -269,9 +289,10 @@ export class MapRenderer {
       const roomB = level.rooms.find((r) => r.id === hallway.roomBId)
       if (!roomA || !roomB) continue
 
-      const path     = computePath(roomA, roomB, hallway.waypoints, hallway.exitA, hallway.exitB)
-      const material = hallway.settings.floorMaterial ?? level.settings.floorMaterial
-      const color    = FLOOR_COLORS[material]
+      const centerline   = computePath(roomA, roomB, hallway.waypoints, hallway.exitA, hallway.exitB)
+      const path         = expandPath(centerline, hallway.width)
+      const material     = hallway.settings.floorMaterial ?? level.settings.floorMaterial
+      const color        = FLOOR_COLORS[material]
 
       const corridorCells = path.filter((c) => !floorSet.has(`${c.x},${c.y}`))
       for (const c of corridorCells) floorSet.add(`${c.x},${c.y}`)
@@ -346,11 +367,16 @@ export class MapRenderer {
     }
 
     // ── Grid overlay ──
+    const gc = new THREE.Color(this.gridSettings.color)
     const gridGeo = new THREE.PlaneGeometry(gridWidth * CELL_SIZE, gridHeight * CELL_SIZE)
     const gridMat = new THREE.ShaderMaterial({
       transparent: true,
       depthWrite:  false,
-      uniforms: { uGridSize: { value: new THREE.Vector2(gridWidth, gridHeight) } },
+      uniforms: {
+        uGridSize:    { value: new THREE.Vector2(gridWidth, gridHeight) },
+        uLineColor:   { value: new THREE.Vector3(gc.r, gc.g, gc.b) },
+        uLineOpacity: { value: this.gridSettings.opacity }
+      },
       vertexShader: `
         varying vec2 vUv;
         void main() {
@@ -360,20 +386,36 @@ export class MapRenderer {
       `,
       fragmentShader: `
         varying vec2 vUv;
-        uniform vec2 uGridSize;
+        uniform vec2  uGridSize;
+        uniform vec3  uLineColor;
+        uniform float uLineOpacity;
         void main() {
           vec2 coord = vUv * uGridSize;
           vec2 grid  = abs(fract(coord - 0.5) - 0.5) / fwidth(coord);
           float line  = min(grid.x, grid.y);
-          float alpha = (1.0 - smoothstep(0.0, 1.2, line)) * 0.85;
-          gl_FragColor = vec4(0.78, 0.78, 0.78, alpha);
+          float alpha = (1.0 - smoothstep(0.0, 1.2, line)) * uLineOpacity;
+          gl_FragColor = vec4(uLineColor, alpha);
         }
       `
     })
+    this.gridMaterial = gridMat
+    this.gridGroup.visible = this.gridSettings.visible
     const gridPlane = new THREE.Mesh(gridGeo, gridMat)
     gridPlane.rotation.x = -Math.PI / 2
     gridPlane.position.set(gridWidth * CELL_SIZE / 2, 0.01, gridHeight * CELL_SIZE / 2)
     this.gridGroup.add(gridPlane)
+
+    // ── Object placements ──
+    for (const placement of level.placements) {
+      const def = this.catalog.find((d) => d.id === placement.definitionId)
+      if (!def) continue
+      if (def.kind === 'token') {
+        this.renderToken(placement.x, placement.y, def as TokenDefinition, placement.id)
+      } else {
+        const rotation = placement.kind === 'prop' ? placement.rotation : 0
+        this.renderProp(placement.x, placement.y, def.visual.naturalWidth, def.visual.naturalHeight, rotation, placement.id)
+      }
+    }
   }
 
   private renderRoomFloor(room: Room, defaults: SurfaceSettings): void {
@@ -409,6 +451,78 @@ export class MapRenderer {
     const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true }))
     mesh.userData['roomId'] = room.id
     this.mapGroup.add(mesh)
+  }
+
+  private renderToken(x: number, y: number, def: TokenDefinition, placementId: string): void {
+    const { bgColor, fgColor, borderColor, iconContent } = def.visual
+    const cx = x * CELL_SIZE
+    const cz = y * CELL_SIZE
+
+    // Border ring (flat color — no texture needed)
+    const ringGeo = new THREE.RingGeometry(0.37, 0.43, 32)
+    ringGeo.rotateX(-Math.PI / 2)
+    const ringMesh = new THREE.Mesh(ringGeo,
+      new THREE.MeshBasicMaterial({ color: borderColor, side: THREE.DoubleSide }))
+    ringMesh.position.set(cx, 0.02, cz)
+    ringMesh.renderOrder = 3
+    ringMesh.userData['placementId'] = placementId
+    this.objectsGroup.add(ringMesh)
+
+    // Background fill (flat color — no texture needed)
+    const fillGeo = new THREE.CircleGeometry(0.37, 32)
+    fillGeo.rotateX(-Math.PI / 2)
+    const fillMesh = new THREE.Mesh(fillGeo,
+      new THREE.MeshBasicMaterial({ color: bgColor }))
+    fillMesh.position.set(cx, 0.02, cz)
+    fillMesh.renderOrder = 3
+    fillMesh.userData['placementId'] = placementId
+    this.objectsGroup.add(fillMesh)
+
+    // SVG icon overlay — transparent canvas plane, loaded via blob URL (allowed by CSP)
+    if (iconContent) {
+      const SIZE = 128
+      const oc   = document.createElement('canvas')
+      oc.width   = SIZE
+      oc.height  = SIZE
+      const ctx  = oc.getContext('2d')!
+      const tex  = new THREE.CanvasTexture(oc)
+
+      const withDims = iconContent.replace('<svg ', '<svg width="24" height="24" ')
+      const colored  = withDims.replace(/currentColor/g, fgColor)
+      const blob     = new Blob([colored], { type: 'image/svg+xml' })
+      const url      = URL.createObjectURL(blob)
+      const img      = new Image()
+      img.onload = () => {
+        const pad = SIZE * 0.18
+        ctx.drawImage(img, pad, pad, SIZE - pad * 2, SIZE - pad * 2)
+        URL.revokeObjectURL(url)
+        tex.needsUpdate = true
+      }
+      img.onerror = (e) => { URL.revokeObjectURL(url); console.warn('[MapRenderer] token icon load failed:', e) }
+      img.src = url
+
+      const iconGeo = new THREE.PlaneGeometry(0.62, 0.62)
+      iconGeo.rotateX(-Math.PI / 2)
+      const iconMesh = new THREE.Mesh(iconGeo,
+        new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }))
+      iconMesh.position.set(cx, 0.021, cz)
+      iconMesh.renderOrder = 4
+      iconMesh.userData['placementId'] = placementId
+      this.objectsGroup.add(iconMesh)
+    }
+  }
+
+  private renderProp(x: number, y: number, w: number, h: number, rotation: number, placementId: string): void {
+    // Colored rect placeholder — neutral brown tint until real textures are wired
+    const geo = new THREE.PlaneGeometry(w * CELL_SIZE * 0.9, h * CELL_SIZE * 0.9)
+    geo.rotateX(-Math.PI / 2)
+    geo.rotateY((rotation * Math.PI) / 180)
+    const mat  = new THREE.MeshLambertMaterial({ color: 0x8b6914, transparent: true, opacity: 0.85 })
+    const mesh = new THREE.Mesh(geo, mat)
+    mesh.position.set(x * CELL_SIZE, 0.02, y * CELL_SIZE)
+    mesh.renderOrder = 3
+    mesh.userData['placementId'] = placementId
+    this.objectsGroup.add(mesh)
   }
 
   // ── Hover / Selection / Ghost overlays ──────────────────────────────────────
@@ -474,6 +588,37 @@ export class MapRenderer {
       return
     }
 
+    // ── Placement selection ──
+    const placement = this.currentLevel.placements.find((p) => p.id === id)
+    if (placement) {
+      const def = this.catalog.find((d) => d.id === placement.definitionId)
+      if (def?.kind === 'token') {
+        // Bright ring around the token
+        const ring = new THREE.RingGeometry(0.44, 0.54, 32)
+        ring.rotateX(-Math.PI / 2)
+        const mat  = new THREE.MeshBasicMaterial({ color: SELECTION_COLOR, transparent: true, opacity: 0.9, depthWrite: false })
+        const mesh = new THREE.Mesh(ring, mat)
+        mesh.position.set(placement.x * CELL_SIZE, 0.03, placement.y * CELL_SIZE)
+        mesh.renderOrder = 10
+        this.selectionGroup.add(mesh)
+      } else if (def?.kind === 'prop') {
+        // Wireframe bounding box
+        const w = def.visual.naturalWidth  * CELL_SIZE * 0.9
+        const h = def.visual.naturalHeight * CELL_SIZE * 0.9
+        const boxGeo = new THREE.BoxGeometry(w, 0.05, h)
+        const edges  = new THREE.EdgesGeometry(boxGeo)
+        const mat    = new THREE.LineBasicMaterial({ color: SELECTION_COLOR, depthTest: false })
+        const lines  = new THREE.LineSegments(edges, mat)
+        const rot    = placement.kind === 'prop' ? (placement.rotation * Math.PI) / 180 : 0
+        lines.rotation.y = rot
+        lines.position.set(placement.x * CELL_SIZE, 0.03, placement.y * CELL_SIZE)
+        lines.renderOrder = 10
+        this.selectionGroup.add(lines)
+        boxGeo.dispose()
+      }
+      return
+    }
+
     // ── Hallway selection ──
     const hallway = this.currentLevel.hallways.find((h) => h.id === id)
     if (hallway) {
@@ -525,7 +670,10 @@ export class MapRenderer {
     const roomB = level.rooms.find((r) => r.id === hallway.roomBId)
     if (!roomA || !roomB) return
 
-    const path = computePath(roomA, roomB, hallway.waypoints, hallway.exitA, hallway.exitB)
+    const path = expandPath(
+      computePath(roomA, roomB, hallway.waypoints, hallway.exitA, hallway.exitB),
+      hallway.width
+    )
     if (path.length === 0) return
 
     const geo = new THREE.PlaneGeometry(CELL_SIZE * 0.92, CELL_SIZE * 0.92)
@@ -544,6 +692,20 @@ export class MapRenderer {
       mesh.renderOrder = 4
       target.add(mesh)
     }
+  }
+
+  setGridSettings(visible: boolean, color: string, opacity: number): void {
+    this.gridSettings = { visible, color, opacity }
+    this.gridGroup.visible = visible
+    if (this.gridMaterial) {
+      const c = new THREE.Color(color)
+      this.gridMaterial.uniforms['uLineColor'].value.set(c.r, c.g, c.b)
+      this.gridMaterial.uniforms['uLineOpacity'].value = opacity
+    }
+  }
+
+  setBackground(color: string): void {
+    this.renderer.setClearColor(new THREE.Color(color))
   }
 
   setGhostRoom(x: number, y: number, w: number, h: number): void {
@@ -571,6 +733,24 @@ export class MapRenderer {
 
   clearEndpointPreview(): void {
     this.endpointPreviewMesh.visible = false
+  }
+
+  setObjectMovePreview(placementId: string, x: number, y: number): void {
+    // Reposition ALL meshes belonging to this placement (tokens have ring + fill + icon)
+    for (const child of this.objectsGroup.children) {
+      if (child.userData['placementId'] === placementId) {
+        child.position.x = x * CELL_SIZE
+        child.position.z = y * CELL_SIZE
+      }
+    }
+
+    // Keep the selection ring tracking too
+    const ring = this.selectionGroup.children[0] as THREE.Mesh | undefined
+    if (ring) ring.position.set(x * CELL_SIZE, 0.03, y * CELL_SIZE)
+  }
+
+  clearObjectMovePreview(): void {
+    // Position is corrected by the subsequent loadLevel call triggered by dispatch
   }
 
   /** Show a preview for an in-progress hallway (first room selected, cursor position) */
@@ -655,6 +835,56 @@ export class MapRenderer {
     animate()
   }
 
+  // ── Placement ghost ──────────────────────────────────────────────────────────
+
+  /** Build ghost meshes for the given definition. Hidden until movePlacementGhost is called. */
+  setPlacementGhost(def: ObjectDefinition | null): void {
+    this.disposeGroup(this.placementGhostGroup)
+    this.placementGhostGroup.visible = false
+    if (!def) return
+
+    const OPACITY = 0.55
+    if (def.kind === 'token') {
+      const { bgColor, borderColor } = (def as TokenDefinition).visual
+      const ringGeo = new THREE.RingGeometry(0.37, 0.43, 32)
+      ringGeo.rotateX(-Math.PI / 2)
+      this.placementGhostGroup.add(new THREE.Mesh(ringGeo,
+        new THREE.MeshBasicMaterial({ color: borderColor, side: THREE.DoubleSide, transparent: true, opacity: OPACITY })))
+      const fillGeo = new THREE.CircleGeometry(0.37, 32)
+      fillGeo.rotateX(-Math.PI / 2)
+      this.placementGhostGroup.add(new THREE.Mesh(fillGeo,
+        new THREE.MeshBasicMaterial({ color: bgColor, transparent: true, opacity: OPACITY })))
+    } else {
+      const { naturalWidth, naturalHeight } = (def as PropDefinition).visual
+      const geo = new THREE.PlaneGeometry(naturalWidth * CELL_SIZE * 0.9, naturalHeight * CELL_SIZE * 0.9)
+      geo.rotateX(-Math.PI / 2)
+      this.placementGhostGroup.add(new THREE.Mesh(geo,
+        new THREE.MeshBasicMaterial({ color: 0x8b6914, transparent: true, opacity: OPACITY })))
+    }
+
+    for (const child of this.placementGhostGroup.children) {
+      (child as THREE.Mesh).renderOrder = 10
+    }
+  }
+
+  /** Reposition the ghost and make it visible. Called on every mousemove when armed. */
+  movePlacementGhost(fx: number, fy: number): void {
+    if (this.placementGhostGroup.children.length === 0) return
+    this.placementGhostGroup.position.set(fx * CELL_SIZE, 0.03, fy * CELL_SIZE)
+    this.placementGhostGroup.visible = true
+  }
+
+  /** Hide the ghost without destroying it (e.g. when cursor leaves the canvas). */
+  hidePlacementGhost(): void {
+    this.placementGhostGroup.visible = false
+  }
+
+  /** Remove ghost meshes entirely (when tool changes or definition is cleared). */
+  clearPlacementGhost(): void {
+    this.disposeGroup(this.placementGhostGroup)
+    this.placementGhostGroup.visible = false
+  }
+
   dispose(): void {
     if (this.animationId !== null) cancelAnimationFrame(this.animationId)
     this.orbitControls?.dispose()
@@ -662,8 +892,10 @@ export class MapRenderer {
     this.disposeGroup(this.mapGroup)
     this.disposeGroup(this.wallGroup)
     this.disposeGroup(this.gridGroup)
+    this.disposeGroup(this.objectsGroup)
     this.disposeGroup(this.selectionGroup)
     this.disposeGroup(this.hoverGroup)
+    this.disposeGroup(this.placementGhostGroup)
     this.renderer.dispose()
   }
 }
