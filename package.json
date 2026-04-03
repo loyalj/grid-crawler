@@ -1,6 +1,6 @@
 {
   "name": "grid-crawler",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "TTRPG dungeon map designer",
   "author": "Loyal Johnson",
   "main": "out/main/index.js",
