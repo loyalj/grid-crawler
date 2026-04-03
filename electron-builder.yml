@@ -5,6 +5,11 @@ directories:
   output: dist
 files:
   - out/**/*
+extraResources:
+  - from: resources
+    to: resources
+    filter:
+      - '**/*'
 
 win:
   executableName: grid-crawler
