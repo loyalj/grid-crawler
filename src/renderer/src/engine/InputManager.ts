@@ -1,4 +1,4 @@
-import { Room, Hallway, Level, Waypoint, ObjectPlacement } from '../types/map'
+import { Room, Hallway, Level, Waypoint, ObjectPlacement, Player } from '../types/map'
 import { computePath, expandPath, resolveExitPoints, nearestWallExit } from './hallwayPath'
 import { useMapStore, ClipboardPayload } from '../store/mapStore'
 import { MapRenderer, ResizeHandle } from './MapRenderer'
@@ -13,7 +13,9 @@ import {
   UpdateHallwayWaypointsCommand,
   PlaceObjectCommand,
   MoveObjectCommand,
-  RemoveObjectCommand
+  RemoveObjectCommand,
+  UpdateRoomLabelOffsetCommand,
+  UpdatePlayerPlacementCommand
 } from './commands'
 
 // ── Context menu types ────────────────────────────────────────────────────────
@@ -29,6 +31,7 @@ export type ContextMenuAction =
   | { kind: 'copy_object';     placementId: string }
   | { kind: 'cut_object';      placementId: string }
   | { kind: 'delete_object';   placementId: string }
+  | { kind: 'delete_player';   playerId: string }
   | { kind: 'paste';           col: number; row: number; fx: number; fy: number }
 
 export interface ContextMenuPayload {
@@ -50,6 +53,8 @@ type InteractionState =
   | { kind: 'hallway_endpoint'; hallwayId: string; end: 'A' | 'B'; room: { id: string; x: number; y: number; width: number; height: number }; origExitA?: { x: number; y: number }; origExitB?: { x: number; y: number } }
   | { kind: 'hallway_waypoint'; hallwayId: string; waypointIndex: number; origWaypoints: Waypoint[] }
   | { kind: 'object_moving';    placementId: string; origX: number; origY: number; startFx: number; startFy: number }
+  | { kind: 'label_moving';     roomId: string; origOffset: { x: number; y: number }; startFx: number; startFy: number }
+  | { kind: 'player_moving';   playerId: string; origX: number; origY: number; startFx: number; startFy: number }
 
 // ── Handle hit tolerance (in grid cells) ─────────────────────────────────────
 
@@ -240,6 +245,37 @@ export class InputManager {
           }
         }
 
+        // Hit-test player tokens (they render above everything)
+        const hitPlayerToken = this.renderer.hitPlayer(c.fx, c.fy)
+        if (hitPlayerToken) {
+          store.setSelectedPlayer(hitPlayerToken.id)
+          this.renderer.setPlayerSelection(hitPlayerToken)
+          if (hitPlayerToken.placement) {
+            this.state = {
+              kind:    'player_moving',
+              playerId: hitPlayerToken.id,
+              origX:   hitPlayerToken.placement.x,
+              origY:   hitPlayerToken.placement.y,
+              startFx: c.fx,
+              startFy: c.fy
+            }
+          }
+          break
+        }
+
+        // Hit-test visible room labels (rendered above floor, draggable)
+        const labelRoom = this.renderer.hitLabel(c.fx, c.fy, level)
+        if (labelRoom) {
+          this.state = {
+            kind:       'label_moving',
+            roomId:     labelRoom.id,
+            origOffset: { ...labelRoom.labelOffset },
+            startFx:    c.fx,
+            startFy:    c.fy
+          }
+          break
+        }
+
         // Hit-test placements first (they render above the floor)
         const placement = this.hitPlacement(c.fx, c.fy, level)
         if (placement) {
@@ -296,6 +332,19 @@ export class InputManager {
           : { id: crypto.randomUUID(), definitionId: armedDefinitionId, kind: 'prop',
               x: px, y: py, rotation: 0, propertyValues: {} }
         dispatch(new PlaceObjectCommand(activeLevelId, placement))
+        break
+      }
+
+      case 'player_place': {
+        const { armedPlayerId, activeLevelId, dispatch } = store
+        if (!armedPlayerId || !activeLevelId) break
+        const fx = this.snapFx(c.fx)
+        const fy = this.snapFy(c.fy)
+        dispatch(new UpdatePlayerPlacementCommand(armedPlayerId, { levelId: activeLevelId, x: fx, y: fy }))
+        store.setArmedPlayer(null)
+        store.setActiveTool('select')
+        this.renderer.clearPlayerGhost()
+        this.renderer.setSelection(null)
         break
       }
 
@@ -404,12 +453,31 @@ export class InputManager {
         )
         break
       }
+
+      case 'label_moving': {
+        const { origOffset, startFx, startFy } = this.state
+        const newOffsetX = origOffset.x + (c.fx - startFx)
+        const newOffsetY = origOffset.y + (c.fy - startFy)
+        this.renderer.moveLabelPreview(this.state.roomId, newOffsetX, newOffsetY)
+        break
+      }
+
+      case 'player_moving': {
+        const { origX, origY, startFx, startFy } = this.state
+        const nx = this.snapFx(origX + (c.fx - startFx))
+        const ny = this.snapFy(origY + (c.fy - startFy))
+        this.renderer.movePlayerPreview(this.state.playerId, nx, ny)
+        break
+      }
     }
 
     // Move placement ghost when object tool is armed
-    const { activeTool, armedDefinitionId } = this.getStore()
+    const { activeTool, armedDefinitionId, armedPlayerId } = this.getStore()
     if (activeTool === 'object' && armedDefinitionId) {
       this.renderer.movePlacementGhost(this.snapFx(c.fx), this.snapFy(c.fy))
+    }
+    if (activeTool === 'player_place' && armedPlayerId) {
+      this.renderer.movePlayerGhost(this.snapFx(c.fx), this.snapFy(c.fy))
     }
 
     // Hover hit-test (only in idle state to avoid flicker)
@@ -460,7 +528,11 @@ export class InputManager {
           const room: Room = {
             id:           crypto.randomUUID(),
             name:         `Room ${(this.getActiveLevel()?.rooms.length ?? 0) + 1}`,
+            label:        '',
+            showLabel:    false,
+            labelOffset:  { x: 0, y: 0 },
             description:  '',
+            notes:        '',
             x, y, width: w, height: h,
             settings:     {},
             cellOverrides: {}
@@ -572,6 +644,34 @@ export class InputManager {
         this.state = { kind: 'idle' }
         break
       }
+
+      case 'label_moving': {
+        const { roomId, origOffset, startFx, startFy } = this.state
+        if (c && store.activeLevelId) {
+          const newOffset = {
+            x: origOffset.x + (c.fx - startFx),
+            y: origOffset.y + (c.fy - startFy)
+          }
+          if (newOffset.x !== origOffset.x || newOffset.y !== origOffset.y) {
+            store.dispatch(new UpdateRoomLabelOffsetCommand(store.activeLevelId, roomId, origOffset, newOffset))
+          }
+        }
+        this.state = { kind: 'idle' }
+        break
+      }
+
+      case 'player_moving': {
+        const { playerId, origX, origY, startFx, startFy } = this.state
+        if (c && store.activeLevelId) {
+          const newX = this.snapFx(origX + (c.fx - startFx))
+          const newY = this.snapFy(origY + (c.fy - startFy))
+          if (newX !== origX || newY !== origY) {
+            store.dispatch(new UpdatePlayerPlacementCommand(playerId, { levelId: store.activeLevelId, x: newX, y: newY }))
+          }
+        }
+        this.state = { kind: 'idle' }
+        break
+      }
     }
   }
 
@@ -579,6 +679,7 @@ export class InputManager {
     this.renderer.setHover(null)
     this.renderer.clearEndpointPreview()
     this.renderer.hidePlacementGhost()
+    this.renderer.hidePlayerGhost()
   }
 
   private handleRightClick(e: MouseEvent): void {
@@ -739,7 +840,20 @@ export class InputManager {
             this.renderer.clearHallwayPreview()
             this.state = { kind: 'idle' }
           }
-          if (store.activeTool === 'object') {
+          if (this.state.kind === 'player_moving') {
+            // Revert token to its original position without dispatching
+            this.renderer.movePlayerPreview(this.state.playerId, this.state.origX, this.state.origY)
+            this.state = { kind: 'idle' }
+          }
+          if (store.activeTool === 'player_place') {
+            store.setArmedPlayer(null)
+            this.renderer.clearPlayerGhost()
+            // Return to select without clearing the player selection
+            store.setActiveTool('select')
+            this.renderer.setSelection(null)
+            break
+          }
+          if (store.activeTool !== 'select') {
             this.switchTool('select')
           }
           store.setSelected(null)
@@ -818,13 +932,18 @@ export class InputManager {
     }
   }
 
-  /** Switch tool, cancelling any in-progress hallway placement. */
+  /** Switch tool, cancelling any in-progress hallway or player placement. */
   private switchTool(tool: import('../store/mapStore').EditorTool): void {
     if (this.state.kind === 'hallway_placing') {
       this.renderer.clearHallwayPreview()
       this.state = { kind: 'idle' }
     }
-    this.getStore().setActiveTool(tool)
+    const store = this.getStore()
+    if (store.activeTool === 'player_place') {
+      store.setArmedPlayer(null)
+      this.renderer.clearPlayerGhost()
+    }
+    store.setActiveTool(tool)
     // setActiveTool already clears selectedId in the store; sync the renderer
     this.renderer.setSelection(null)
   }

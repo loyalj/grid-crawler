@@ -41,8 +41,8 @@
 
 .toolBtn[data-active] {
   background: var(--mantine-color-dark-5);
-  border-color: var(--mantine-color-yellow-6);
-  color: var(--mantine-color-yellow-4);
+  border-color: var(--mantine-color-teal-7);
+  color: var(--mantine-color-teal-4);
 }
 
 .toolBtn[disabled] {

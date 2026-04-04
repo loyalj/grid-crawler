@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Modal, TextInput, NumberInput, Group, Button, Stack } from '@mantine/core'
+import { generateMapName } from './data/mapNames'
 import { MapCanvas, MapCanvasHandle } from './components/MapCanvas'
 import { Toolbar } from './components/Toolbar'
 import { SideNav } from './components/SideNav'
 import { DetailsPanel } from './components/DetailsPanel'
 import { SettingsContent } from './components/SettingsPanel'
+import { AboutModal } from './components/AboutModal'
 import { useMapStore } from './store/mapStore'
 import { ObjectDefinition } from './types/map'
 import { buildCrwlBuffer, parseCrwlBuffer } from './engine/projectFile'
@@ -18,6 +20,35 @@ export default function App() {
   const setViewMode    = useMapStore((s) => s.setViewMode)
   const setAppCatalog  = useMapStore((s) => s.setAppCatalog)
   const navSection     = useMapStore((s) => s.navSection)
+
+  // Right panel resize
+  const [rightPanelWidth, setRightPanelWidth] = useState(190)
+  const isDraggingRight = useRef(false)
+  const dragStartX      = useRef(0)
+  const dragStartWidth  = useRef(0)
+
+  const onRightHandleMouseDown = useCallback((e: React.MouseEvent) => {
+    isDraggingRight.current = true
+    dragStartX.current      = e.clientX
+    dragStartWidth.current  = rightPanelWidth
+    e.preventDefault()
+  }, [rightPanelWidth])
+
+  useEffect(() => {
+    function onMouseMove(e: MouseEvent) {
+      if (!isDraggingRight.current) return
+      const delta    = dragStartX.current - e.clientX
+      const newWidth = Math.min(500, Math.max(160, dragStartWidth.current + delta))
+      setRightPanelWidth(newWidth)
+    }
+    function onMouseUp() { isDraggingRight.current = false }
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup',   onMouseUp)
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup',   onMouseUp)
+    }
+  }, [])
 
   // Tracks the file path of the currently open document (null = unsaved)
   const mapCanvasRef          = useRef<MapCanvasHandle>(null)
@@ -37,6 +68,7 @@ export default function App() {
     }).catch((e) => console.warn('[App] failed to load app catalog:', e))
   }, [setAppCatalog])
 
+  const [showAbout, setShowAbout] = useState(false)
   const [showNew, setShowNew]     = useState(false)
   const [mapName, setMapName]     = useState('')
   const [mapWidth, setMapWidth]   = useState<number>(32)
@@ -193,6 +225,7 @@ export default function App() {
         case 'edit:copy':        mapCanvasRef.current?.copy();  break
         case 'edit:cut':         mapCanvasRef.current?.cut();   break
         case 'edit:paste':       mapCanvasRef.current?.paste(); break
+        case 'app:about':        setShowAbout(true);            break
         case 'app:beforeClose':  handleBeforeClose();           break
         case 'file:exportPdf':                             break
         case 'view:topdown':   setViewMode('topdown');     break
@@ -221,7 +254,8 @@ export default function App() {
                 <main className="canvas-area">
                   <MapCanvas ref={mapCanvasRef} />
                 </main>
-                <aside className="sidebar-right">
+                <div className="resize-handle-right" onMouseDown={onRightHandleMouseDown} />
+                <aside className="sidebar-right" style={{ width: rightPanelWidth }}>
                   <DetailsPanel />
                 </aside>
               </div>
@@ -229,6 +263,8 @@ export default function App() {
           )}
         </div>
       </div>
+
+      <AboutModal opened={showAbout} onClose={() => setShowAbout(false)} />
 
       <Modal
         opened={showUnsaved}
@@ -263,6 +299,32 @@ export default function App() {
             onChange={(e) => setMapName(e.currentTarget.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
             data-autofocus
+            rightSection={
+              <button
+                type="button"
+                title="Generate random name"
+                onClick={() => setMapName(generateMapName())}
+                style={{
+                  all: 'unset', cursor: 'pointer', display: 'flex',
+                  alignItems: 'center', justifyContent: 'center',
+                  width: 28, height: 28, borderRadius: 4,
+                  color: 'var(--mantine-color-dimmed)',
+                  transition: 'color 80ms ease'
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--mantine-color-teal-4)')}
+                onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--mantine-color-dimmed)')}
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="1.5" y="1.5" width="13" height="13" rx="2.5"/>
+                  <circle cx="5" cy="5"  r="0.8" fill="currentColor" stroke="none"/>
+                  <circle cx="11" cy="5"  r="0.8" fill="currentColor" stroke="none"/>
+                  <circle cx="5" cy="11" r="0.8" fill="currentColor" stroke="none"/>
+                  <circle cx="11" cy="11" r="0.8" fill="currentColor" stroke="none"/>
+                  <circle cx="8" cy="8"  r="0.8" fill="currentColor" stroke="none"/>
+                </svg>
+              </button>
+            }
+            rightSectionWidth={36}
           />
           <Group grow>
             <NumberInput

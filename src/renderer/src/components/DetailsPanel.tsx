@@ -1,19 +1,27 @@
-import { Stack, Text, Divider, Select, NumberInput, TextInput } from '@mantine/core'
+import React, { useRef } from 'react'
+import { Stack, Text, Divider, Select, NumberInput, TextInput, Textarea, Switch, Button, Group } from '@mantine/core'
 import { useMapStore } from '../store/mapStore'
 import {
   Room, Hallway, Level,
   LevelSettings, SurfaceSettings,
   FloorMaterial, WallMaterial,
-  ObjectPlacement, ObjectDefinition, TokenDefinition, PropPlacement
+  ObjectPlacement, ObjectDefinition, TokenDefinition, PropPlacement,
+  Player
 } from '../types/map'
 import {
   UpdateRoomSettingsCommand,
+  UpdateRoomLabelCommand,
+  UpdateRoomNotesCommand,
   UpdateHallwaySettingsCommand,
   UpdateHallwayWidthCommand,
   RerouteHallwayCommand,
   UpdateObjectPropertiesCommand,
-  RotatePropCommand
+  RotatePropCommand,
+  UpdateProjectMetadataCommand,
+  UpdatePlayerCommand,
+  UpdatePlayerPlacementCommand
 } from '../engine/commands'
+import { PortraitCropModal } from './PortraitCropModal'
 import classes from './DetailsPanel.module.css'
 
 // ── Option lists ──────────────────────────────────────────────────────────────
@@ -98,6 +106,32 @@ function RoomDetails({
   levelId:       string
   levelSettings: LevelSettings
 }) {
+  const [label,     setLabel]     = React.useState(room.label ?? '')
+  const [showLabel, setShowLabel] = React.useState(room.showLabel ?? false)
+  const [notes,     setNotes]     = React.useState(room.notes ?? '')
+
+  React.useEffect(() => {
+    setLabel(room.label ?? '')
+    setShowLabel(room.showLabel ?? false)
+    setNotes(room.notes ?? '')
+  }, [room.id, room.label, room.showLabel, room.notes])
+
+  function commitLabel(nextLabel = label, nextShow = showLabel) {
+    const trimmed = nextLabel.trimEnd()
+    if (trimmed === (room.label ?? '') && nextShow === (room.showLabel ?? false)) return
+    useMapStore.getState().dispatch(new UpdateRoomLabelCommand(
+      levelId, room.id,
+      { label: room.label ?? '', showLabel: room.showLabel ?? false },
+      { label: trimmed, showLabel: nextShow }
+    ))
+  }
+
+  function commitNotes() {
+    const trimmed = notes.trimEnd()
+    if (trimmed === (room.notes ?? '')) return
+    useMapStore.getState().dispatch(new UpdateRoomNotesCommand(levelId, room.id, room.notes ?? '', trimmed))
+  }
+
   function dispatch(before: Partial<SurfaceSettings>, after: Partial<SurfaceSettings>) {
     useMapStore.getState().dispatch(
       new UpdateRoomSettingsCommand(levelId, room.id, before, after)
@@ -142,10 +176,33 @@ function RoomDetails({
   return (
     <Stack gap={0}>
       <div className={classes.header}>
-        <Text className={classes.title} title={room.name}>{room.name || 'Unnamed Room'}</Text>
-        <Text size="xs" c="dimmed">{levelSettings.gridWidth}×{levelSettings.gridHeight}</Text>
+        <Text className={classes.title} title={room.label || room.name}>
+          {room.label || room.name || 'Unnamed Room'}
+        </Text>
+        <Text size="xs" c="dimmed">{room.name}</Text>
       </div>
       <Stack gap={0} p={8}>
+        <Text className={classes.sectionLabel}>Label</Text>
+        <TextInput
+          size="xs"
+          placeholder={room.name}
+          value={label}
+          onChange={(e) => setLabel(e.currentTarget.value)}
+          onBlur={() => commitLabel()}
+        />
+        <Switch
+          mt={6}
+          size="xs"
+          label="Show on map"
+          checked={showLabel}
+          onChange={(e) => {
+            const v = e.currentTarget.checked
+            setShowLabel(v)
+            commitLabel(label, v)
+          }}
+        />
+
+        <Divider my={8} />
         <Text className={classes.sectionLabel}>Geometry</Text>
         <Row label="Position" value={`${room.x}, ${room.y}`} />
         <Row label="Size"     value={`${room.width} × ${room.height} cells`} />
@@ -201,13 +258,18 @@ function RoomDetails({
           />
         </ControlRow>
 
-        {room.description && (
-          <>
-            <Divider my={8} />
-            <Text className={classes.sectionLabel}>Description</Text>
-            <Text size="xs" c="dimmed" style={{ whiteSpace: 'pre-wrap' }}>{room.description}</Text>
-          </>
-        )}
+        <Divider my={8} />
+        <Text className={classes.sectionLabel}>GM Notes</Text>
+        <Textarea
+          size="xs"
+          autosize
+          minRows={2}
+          maxRows={8}
+          placeholder="Private notes (not shown on map)"
+          value={notes}
+          onChange={(e) => setNotes(e.currentTarget.value)}
+          onBlur={commitNotes}
+        />
       </Stack>
     </Stack>
   )
@@ -495,6 +557,294 @@ function ObjectDetails({
   )
 }
 
+// ── Project details ───────────────────────────────────────────────────────────
+
+function ProjectDetails({ project }: { project: import('../types/map').MapProject }) {
+  const dispatch = useMapStore((s) => s.dispatch)
+
+  const [name,        setName]        = React.useState(project.name)
+  const [version,     setVersion]     = React.useState(project.version)
+  const [description, setDescription] = React.useState(project.metadata.description ?? '')
+  const [author,      setAuthor]      = React.useState(project.metadata.author ?? '')
+  const [system,      setSystem]      = React.useState(project.metadata.system ?? '')
+  const [tags,        setTags]        = React.useState((project.metadata.tags ?? []).join(', '))
+
+  // Keep local state in sync if the project is replaced (e.g. after open/undo)
+  React.useEffect(() => {
+    setName(project.name)
+    setVersion(project.version)
+    setDescription(project.metadata.description ?? '')
+    setAuthor(project.metadata.author ?? '')
+    setSystem(project.metadata.system ?? '')
+    setTags((project.metadata.tags ?? []).join(', '))
+  }, [project.id])
+
+  function commit(overrides: {
+    name?: string; version?: string
+    description?: string; author?: string; system?: string; tags?: string
+  }) {
+    const resolvedTags = (overrides.tags ?? tags)
+      .split(',').map((t) => t.trim()).filter(Boolean)
+    const after = {
+      name:     overrides.name    ?? name,
+      version:  overrides.version ?? version,
+      metadata: {
+        ...project.metadata,
+        description: overrides.description ?? description,
+        author:      overrides.author      ?? author,
+        system:      overrides.system      ?? system,
+        tags:        resolvedTags
+      }
+    }
+    const before = {
+      name:     project.name,
+      version:  project.version,
+      metadata: project.metadata
+    }
+    // Only dispatch if something actually changed
+    if (
+      after.name === before.name &&
+      after.version === before.version &&
+      JSON.stringify(after.metadata) === JSON.stringify(before.metadata)
+    ) return
+    dispatch(new UpdateProjectMetadataCommand(before, after))
+  }
+
+  return (
+    <Stack gap={0}>
+      <div className={classes.header}>
+        <Text className={classes.title}>Project Info</Text>
+      </div>
+      <Stack gap={8} p={8}>
+        <TextInput
+          label="Name"
+          size="xs"
+          value={name}
+          onChange={(e) => setName(e.currentTarget.value)}
+          onBlur={() => commit({ name })}
+        />
+        <TextInput
+          label="Version"
+          size="xs"
+          value={version}
+          onChange={(e) => setVersion(e.currentTarget.value)}
+          onBlur={() => commit({ version })}
+        />
+        <Divider />
+        <TextInput
+          label="Author"
+          size="xs"
+          value={author}
+          onChange={(e) => setAuthor(e.currentTarget.value)}
+          onBlur={() => commit({ author })}
+        />
+        <TextInput
+          label="System"
+          placeholder="e.g. D&D 5e, Pathfinder"
+          size="xs"
+          value={system}
+          onChange={(e) => setSystem(e.currentTarget.value)}
+          onBlur={() => commit({ system })}
+        />
+        <Textarea
+          label="Description"
+          size="xs"
+          autosize
+          minRows={2}
+          maxRows={6}
+          value={description}
+          onChange={(e) => setDescription(e.currentTarget.value)}
+          onBlur={() => commit({ description })}
+        />
+        <TextInput
+          label="Tags"
+          description="Comma-separated"
+          size="xs"
+          value={tags}
+          onChange={(e) => setTags(e.currentTarget.value)}
+          onBlur={() => commit({ tags })}
+        />
+      </Stack>
+    </Stack>
+  )
+}
+
+// ── Player details ────────────────────────────────────────────────────────────
+
+function PlayerDetails({ player }: { player: Player }) {
+  const dispatch        = useMapStore((s) => s.dispatch)
+  const project         = useMapStore((s) => s.project)
+  const setActiveTool   = useMapStore((s) => s.setActiveTool)
+  const setArmedPlayer  = useMapStore((s) => s.setArmedPlayer)
+
+  const [name,  setName]  = React.useState(player.name)
+  const [notes, setNotes] = React.useState(player.notes)
+
+  // Crop modal state
+  const [cropSrc,    setCropSrc]    = React.useState<string | null>(null)
+  const [cropOpened, setCropOpened] = React.useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  React.useEffect(() => {
+    setName(player.name)
+    setNotes(player.notes)
+  }, [player.id, player.name, player.notes])
+
+  function commitName() {
+    const trimmed = name.trimEnd()
+    if (trimmed === player.name) return
+    dispatch(new UpdatePlayerCommand(player.id, { name: trimmed, notes: player.notes, portrait: player.portrait }))
+  }
+
+  function commitNotes() {
+    const trimmed = notes.trimEnd()
+    if (trimmed === player.notes) return
+    dispatch(new UpdatePlayerCommand(player.id, { name: player.name, notes: trimmed, portrait: player.portrait }))
+  }
+
+  function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const url = URL.createObjectURL(file)
+    setCropSrc(url)
+    setCropOpened(true)
+    // Reset so the same file can be re-selected
+    e.target.value = ''
+  }
+
+  function onCropConfirm(dataUrl: string) {
+    if (cropSrc) URL.revokeObjectURL(cropSrc)
+    setCropSrc(null)
+    setCropOpened(false)
+    dispatch(new UpdatePlayerCommand(player.id, { name: player.name, notes: player.notes, portrait: dataUrl }))
+  }
+
+  function onCropClose() {
+    if (cropSrc) URL.revokeObjectURL(cropSrc)
+    setCropSrc(null)
+    setCropOpened(false)
+  }
+
+  function handlePlace() {
+    setArmedPlayer(player.id)
+    setActiveTool('player_place')
+  }
+
+  function handleUnplace() {
+    dispatch(new UpdatePlayerPlacementCommand(player.id, null))
+  }
+
+  // Placement hint
+  let placementLabel = 'Unplaced'
+  if (player.placement && project) {
+    const { levelId, x, y } = player.placement
+    const levelName = project.overworld.id === levelId
+      ? project.overworld.name
+      : project.dungeonLevels.find((l) => l.id === levelId)?.name ?? 'Unknown level'
+    placementLabel = `${levelName} (${Math.round(x)}, ${Math.round(y)})`
+  }
+
+  return (
+    <Stack gap={0}>
+      <div className={classes.header}>
+        <Text className={classes.title}>{player.name || 'Unnamed Player'}</Text>
+      </div>
+      <Stack gap={8} p={8}>
+
+        <TextInput
+          label="Name"
+          size="xs"
+          value={name}
+          onChange={(e) => setName(e.currentTarget.value)}
+          onBlur={commitName}
+        />
+
+        <Divider />
+
+        {/* Portrait */}
+        <Text className={classes.sectionLabel}>Portrait</Text>
+        {player.portrait && (
+          <img
+            src={player.portrait}
+            alt="portrait"
+            style={{
+              width: 80, height: 80,
+              borderRadius: 6,
+              objectFit: 'cover',
+              border: '1px solid var(--mantine-color-dark-3)'
+            }}
+          />
+        )}
+        <Group gap="xs">
+          <Button
+            size="xs"
+            variant="default"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            {player.portrait ? 'Change portrait' : 'Choose portrait'}
+          </Button>
+          {player.portrait && (
+            <Button
+              size="xs"
+              variant="subtle"
+              color="red"
+              onClick={() => dispatch(new UpdatePlayerCommand(player.id, { name: player.name, notes: player.notes, portrait: null }))}
+            >
+              Remove
+            </Button>
+          )}
+        </Group>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          style={{ display: 'none' }}
+          onChange={onFileChange}
+        />
+
+        <Divider />
+
+        {/* Placement */}
+        <Text className={classes.sectionLabel}>Placement</Text>
+        <Text size="xs" c="dimmed">{placementLabel}</Text>
+        <Group gap="xs">
+          <Button size="xs" variant="default" onClick={handlePlace}>
+            {player.placement ? 'Move on map' : 'Place on map'}
+          </Button>
+          {player.placement && (
+            <Button size="xs" variant="subtle" color="red" onClick={handleUnplace}>
+              Unplace
+            </Button>
+          )}
+        </Group>
+
+        <Divider />
+
+        <Textarea
+          label="Notes"
+          size="xs"
+          autosize
+          minRows={2}
+          maxRows={8}
+          placeholder="GM notes (private)"
+          value={notes}
+          onChange={(e) => setNotes(e.currentTarget.value)}
+          onBlur={commitNotes}
+        />
+      </Stack>
+
+      {cropSrc && (
+        <PortraitCropModal
+          opened={cropOpened}
+          imageUrl={cropSrc}
+          onConfirm={onCropConfirm}
+          onClose={onCropClose}
+        />
+      )}
+    </Stack>
+  )
+}
+
 // ── Level details (read-only) ─────────────────────────────────────────────────
 
 function LevelDetails({ level }: { level: Level }) {
@@ -525,10 +875,12 @@ function LevelDetails({ level }: { level: Level }) {
 // ── Main panel ────────────────────────────────────────────────────────────────
 
 export function DetailsPanel() {
-  const project       = useMapStore((s) => s.project)
-  const activeLevelId = useMapStore((s) => s.activeLevelId)
-  const selectedId    = useMapStore((s) => s.selectedId)
-  const appCatalog    = useMapStore((s) => s.appCatalog)
+  const project          = useMapStore((s) => s.project)
+  const activeLevelId    = useMapStore((s) => s.activeLevelId)
+  const selectedId       = useMapStore((s) => s.selectedId)
+  const projectSelected  = useMapStore((s) => s.projectSelected)
+  const selectedPlayerId = useMapStore((s) => s.selectedPlayerId)
+  const appCatalog       = useMapStore((s) => s.appCatalog)
 
   const activeLevel = project
     ? activeLevelId === project.overworld.id
@@ -542,6 +894,25 @@ export function DetailsPanel() {
         <Text size="xs" c="dimmed" fs="italic" p="xs">No map open</Text>
       </div>
     )
+  }
+
+  if (projectSelected) {
+    return (
+      <div className={classes.panel}>
+        <ProjectDetails project={project} />
+      </div>
+    )
+  }
+
+  if (selectedPlayerId) {
+    const player = project.players.find((p) => p.id === selectedPlayerId)
+    if (player) {
+      return (
+        <div className={classes.panel}>
+          <PlayerDetails player={player} />
+        </div>
+      )
+    }
   }
 
   if (!selectedId) {

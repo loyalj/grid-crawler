@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, dialog, Menu, MenuItemConstructorOptions } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, Menu, MenuItemConstructorOptions, dialog } from 'electron'
 import { join } from 'path'
 import { readFileSync, writeFileSync, existsSync } from 'fs'
 import { autoUpdater } from 'electron-updater'
@@ -86,6 +86,13 @@ function buildMenu() {
           { role: 'close' as const }
         ])
       ]
+    },
+
+    {
+      label: 'Help',
+      submenu: [
+        { label: 'About Grid Crawler', click: () => send('app:about') }
+      ]
     }
   ]
 
@@ -134,13 +141,28 @@ function createWindow(): BrowserWindow {
   return mainWindow
 }
 
+function sendUpdaterStatus(status: object) {
+  mainWindow?.webContents.send('updater:status', status)
+}
+
+autoUpdater.on('checking-for-update',  () => sendUpdaterStatus({ state: 'checking' }))
+autoUpdater.on('update-available',     (info) => sendUpdaterStatus({ state: 'available', version: info.version }))
+autoUpdater.on('update-not-available', () => sendUpdaterStatus({ state: 'up-to-date' }))
+autoUpdater.on('error',                (err) => sendUpdaterStatus({ state: 'error', message: err.message }))
+
+ipcMain.on('updater:check', () => {
+  if (isDev) {
+    sendUpdaterStatus({ state: 'error', message: 'Updates are disabled in development mode.' })
+    return
+  }
+  autoUpdater.checkForUpdates().catch((err) =>
+    sendUpdaterStatus({ state: 'error', message: err.message })
+  )
+})
+
 app.whenReady().then(() => {
   buildMenu()
   createWindow()
-
-  if (!isDev) {
-    autoUpdater.checkForUpdatesAndNotify()
-  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

@@ -238,6 +238,75 @@ export class ResizeRoomCommand implements Command {
   }
 }
 
+export class UpdateRoomLabelCommand implements Command {
+  readonly description = 'Update room label'
+
+  constructor(
+    private readonly levelId:  string,
+    private readonly roomId:   string,
+    private readonly before:   { label: string; showLabel: boolean },
+    private readonly after:    { label: string; showLabel: boolean }
+  ) {}
+
+  execute(project: MapProject): MapProject {
+    return mapRooms(project, this.levelId, (rooms) =>
+      rooms.map((r) => r.id === this.roomId ? { ...r, ...this.after } : r)
+    )
+  }
+
+  undo(project: MapProject): MapProject {
+    return mapRooms(project, this.levelId, (rooms) =>
+      rooms.map((r) => r.id === this.roomId ? { ...r, ...this.before } : r)
+    )
+  }
+}
+
+export class UpdateRoomLabelOffsetCommand implements Command {
+  readonly description = 'Move room label'
+
+  constructor(
+    private readonly levelId: string,
+    private readonly roomId:  string,
+    private readonly before:  { x: number; y: number },
+    private readonly after:   { x: number; y: number }
+  ) {}
+
+  execute(project: MapProject): MapProject {
+    return mapRooms(project, this.levelId, (rooms) =>
+      rooms.map((r) => r.id === this.roomId ? { ...r, labelOffset: this.after } : r)
+    )
+  }
+
+  undo(project: MapProject): MapProject {
+    return mapRooms(project, this.levelId, (rooms) =>
+      rooms.map((r) => r.id === this.roomId ? { ...r, labelOffset: this.before } : r)
+    )
+  }
+}
+
+export class UpdateRoomNotesCommand implements Command {
+  readonly description = 'Update room notes'
+
+  constructor(
+    private readonly levelId: string,
+    private readonly roomId:  string,
+    private readonly before:  string,
+    private readonly after:   string
+  ) {}
+
+  execute(project: MapProject): MapProject {
+    return mapRooms(project, this.levelId, (rooms) =>
+      rooms.map((r) => (r.id === this.roomId ? { ...r, notes: this.after } : r))
+    )
+  }
+
+  undo(project: MapProject): MapProject {
+    return mapRooms(project, this.levelId, (rooms) =>
+      rooms.map((r) => (r.id === this.roomId ? { ...r, notes: this.before } : r))
+    )
+  }
+}
+
 export class UpdateRoomCommand implements Command {
   readonly description = 'Update room'
 

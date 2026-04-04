@@ -1,10 +1,16 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron'
+import type { UpdaterStatus } from '../renderer/src/types/electron'
 
 // WeakMap tracks the ipcRenderer wrapper created for each user callback so that
 // removeListener receives the exact same function reference that was passed to on().
 const menuWrappers = new WeakMap<
   (action: string) => void,
   (_event: IpcRendererEvent, action: string) => void
+>()
+
+const updaterWrappers = new WeakMap<
+  (status: UpdaterStatus) => void,
+  (_event: IpcRendererEvent, status: UpdaterStatus) => void
 >()
 
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -39,6 +45,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
     if (wrapper) {
       ipcRenderer.removeListener('menu:action', wrapper)
       menuWrappers.delete(callback)
+    }
+  },
+
+  checkForUpdates: () => ipcRenderer.send('updater:check'),
+
+  onUpdaterStatus: (callback: (status: UpdaterStatus) => void) => {
+    const wrapper = (_event: IpcRendererEvent, status: UpdaterStatus) => callback(status)
+    updaterWrappers.set(callback, wrapper)
+    ipcRenderer.on('updater:status', wrapper)
+  },
+
+  offUpdaterStatus: (callback: (status: UpdaterStatus) => void) => {
+    const wrapper = updaterWrappers.get(callback)
+    if (wrapper) {
+      ipcRenderer.removeListener('updater:status', wrapper)
+      updaterWrappers.delete(callback)
     }
   }
 })

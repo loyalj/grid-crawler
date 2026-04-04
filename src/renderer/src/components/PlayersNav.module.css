@@ -1,0 +1,116 @@
+.nav {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ── Player list ────────────────────────────────────────────────────────────── */
+
+.list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0;
+  min-height: 0;
+}
+
+.playerRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: calc(100% - 8px);
+  margin: 0 4px 1px;
+  padding: 5px 6px;
+  border-radius: var(--mantine-radius-sm);
+  border: 1px solid transparent;
+  transition: background 80ms ease, border-color 80ms ease;
+  cursor: pointer;
+}
+
+.playerRow:hover {
+  background: var(--mantine-color-dark-5);
+}
+
+.playerRow[data-active] {
+  background: var(--mantine-color-dark-5);
+  border-color: var(--mantine-color-teal-7);
+}
+
+/* ── Portrait thumbnail ─────────────────────────────────────────────────────── */
+
+.portrait {
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--mantine-color-dark-4);
+  border: 1px solid var(--mantine-color-dark-3);
+}
+
+.portrait img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.portraitInitials {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--mantine-color-teal-4);
+  text-transform: uppercase;
+  line-height: 1;
+}
+
+/* ── Row text ────────────────────────────────────────────────────────────────── */
+
+.playerInfo {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.playerName {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--mantine-color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.playerRow[data-active] .playerName {
+  color: var(--mantine-color-teal-4);
+}
+
+.playerPlacement {
+  font-size: 10px;
+  color: var(--mantine-color-dimmed);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Add button ──────────────────────────────────────────────────────────────── */
+
+.addBtn {
+  width: 100%;
+  padding: 6px 8px;
+  border-top: 1px solid var(--mantine-color-dark-4);
+  border-radius: 0;
+  color: var(--mantine-color-dimmed);
+  font-size: 12px;
+  text-align: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 80ms ease, color 80ms ease;
+}
+
+.addBtn:hover {
+  background: var(--mantine-color-dark-5);
+  color: var(--mantine-color-text);
+}

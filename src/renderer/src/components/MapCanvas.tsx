@@ -24,9 +24,11 @@ export const MapCanvas = forwardRef<MapCanvasHandle>(function MapCanvas(_, ref) 
   const activeLevelId = useMapStore((s) => s.activeLevelId)
   const viewMode      = useMapStore((s) => s.viewMode)
   const selectedId    = useMapStore((s) => s.selectedId)
+  const selectedPlayerId = useMapStore((s) => s.selectedPlayerId)
   const activeTool         = useMapStore((s) => s.activeTool)
   const appCatalog         = useMapStore((s) => s.appCatalog)
   const armedDefinitionId  = useMapStore((s) => s.armedDefinitionId)
+  const armedPlayerId      = useMapStore((s) => s.armedPlayerId)
 
   const gridVisible      = useAppSettings((s) => s.gridVisible)
   const gridColor        = useAppSettings((s) => s.gridColor)
@@ -125,14 +127,44 @@ export const MapCanvas = forwardRef<MapCanvasHandle>(function MapCanvas(_, ref) 
   // Level data changes → full re-render
   useEffect(() => {
     if (!activeLevel) return
-    // Ensure catalog is current before rendering objects
+    // Ensure catalog and players are current before rendering
     const { appCatalog, project } = useMapStore.getState()
     rendererRef.current?.setCatalog([...appCatalog, ...(project?.projectCatalog ?? [])])
+    rendererRef.current?.setPlayers(project?.players ?? [])
     rendererRef.current?.loadLevel(activeLevel)
     // Re-apply selection overlay after re-render
-    const { selectedId } = useMapStore.getState()
+    const { selectedId, selectedPlayerId } = useMapStore.getState()
     rendererRef.current?.setSelection(selectedId)
+    const player = selectedPlayerId
+      ? (project?.players.find((p) => p.id === selectedPlayerId) ?? null)
+      : null
+    rendererRef.current?.setPlayerSelection(player)
   }, [activeLevel])
+
+  // Players list changes → update renderer and re-render level (players are part of the scene)
+  useEffect(() => {
+    const players = project?.players ?? []
+    rendererRef.current?.setPlayers(players)
+    if (activeLevel) rendererRef.current?.loadLevel(activeLevel)
+  }, [project?.players]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Player selection → sync renderer highlight
+  useEffect(() => {
+    const player = selectedPlayerId
+      ? (useMapStore.getState().project?.players.find((p) => p.id === selectedPlayerId) ?? null)
+      : null
+    rendererRef.current?.setPlayerSelection(player)
+  }, [selectedPlayerId])
+
+  // Armed player → build/clear ghost token
+  useEffect(() => {
+    if (!armedPlayerId) {
+      rendererRef.current?.clearPlayerGhost()
+      return
+    }
+    const player = useMapStore.getState().project?.players.find((p) => p.id === armedPlayerId) ?? null
+    rendererRef.current?.setPlayerGhost(player)
+  }, [armedPlayerId])
 
   // Selection changes (from tree nav, keyboard, etc.) → sync renderer
   useEffect(() => {

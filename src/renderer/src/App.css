@@ -48,11 +48,26 @@
 /* ── Right panel ─────────────────────────────────────────────────────────── */
 
 .sidebar-right {
-  width: 190px;
+  /* width is set via inline style; 190px is the default */
   background: var(--mantine-color-dark-7);
   border-left: 1px solid var(--mantine-color-dark-4);
   overflow-y: auto;
   flex-shrink: 0;
+}
+
+/* ── Right panel resize handle ───────────────────────────────────────────── */
+
+.resize-handle-right {
+  width: 5px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 120ms ease;
+  z-index: 10;
+}
+
+.resize-handle-right:hover {
+  background: var(--mantine-color-teal-5);
 }
 
 /* ── Canvas ──────────────────────────────────────────────────────────────── */

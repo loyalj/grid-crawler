@@ -1,15 +1,15 @@
 import { create } from 'zustand'
 import { MapProject, Level, LevelSettings, DEFAULT_SETTINGS, ObjectDefinition, Room, ObjectPlacement, Hallway } from '../types/map'
 import { Command } from '../types/commands'
-import { AddLevelCommand, RemoveLevelCommand } from '../engine/commands'
+import { AddLevelCommand, RemoveLevelCommand, AddPlayerCommand, RemovePlayerCommand } from '../engine/commands'
 
 export type ViewMode  = 'topdown' | 'isometric' | 'fps'
 
 export type ClipboardPayload =
   | { kind: 'room';      room: Room; hallways: Hallway[] }
   | { kind: 'placement'; placement: ObjectPlacement }
-export type EditorTool = 'room' | 'hallway' | 'select' | 'object'
-export type NavSection = 'map' | 'objects' | 'settings'
+export type EditorTool = 'room' | 'hallway' | 'select' | 'object' | 'player_place'
+export type NavSection = 'map' | 'objects' | 'players' | 'settings'
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -35,6 +35,7 @@ function createProject(name: string, width: number, height: number): MapProject 
     createdAt:      now,
     updatedAt:      now,
     metadata:       {},
+    players:        [],
     projectCatalog: [],
     overworld:      createLevel('Overworld', 0, settings),
     dungeonLevels:  [createLevel('Level 1',  1, settings)]
@@ -68,7 +69,10 @@ interface MapStore {
   activeTool:         EditorTool
   navSection:         NavSection
   selectedId:         string | null  // selected room, hallway, or placement id
+  projectSelected:    boolean        // true when the project header is selected (shows project info panel)
   armedDefinitionId:  string | null  // definition to place when object tool is active
+  selectedPlayerId:   string | null  // selected player id (mutually exclusive with selectedId)
+  armedPlayerId:      string | null  // player being placed (player_place tool)
   canUndo:            boolean
   canRedo:            boolean
 
@@ -84,7 +88,14 @@ interface MapStore {
   // Tool + selection
   setActiveTool:        (tool: EditorTool) => void
   setSelected:          (id: string | null) => void
+  setProjectSelected:   (v: boolean) => void
   setArmedDefinition:   (id: string | null) => void
+  setSelectedPlayer:    (id: string | null) => void
+  setArmedPlayer:       (id: string | null) => void
+
+  // Player management
+  addPlayer:    () => void
+  removePlayer: (playerId: string) => void
 
   // Document lifecycle helpers
   markSaved: () => void
@@ -118,7 +129,10 @@ export const useMapStore = create<MapStore>((set, get) => ({
   activeTool:        'select',
   navSection:        'map' as NavSection,
   selectedId:        null,
+  projectSelected:   false,
   armedDefinitionId: null,
+  selectedPlayerId:  null,
+  armedPlayerId:     null,
   canUndo:           false,
   canRedo:           false,
 
@@ -128,34 +142,42 @@ export const useMapStore = create<MapStore>((set, get) => ({
     const project = createProject(name, width, height)
     set({
       project,
-      isDirty:       false,
-      activeLevelId: project.overworld.id,
-      undoStack:     [],
-      redoStack:     [],
-      canUndo:       false,
-      canRedo:       false,
-      selectedId:    null
+      isDirty:          false,
+      activeLevelId:    project.overworld.id,
+      undoStack:        [],
+      redoStack:        [],
+      canUndo:          false,
+      canRedo:          false,
+      selectedId:       null,
+      projectSelected:  false,
+      selectedPlayerId: null,
+      armedPlayerId:    null
     })
   },
 
   setProject: (project) => {
     set({
       project,
-      isDirty:       false,
-      activeLevelId: project.overworld.id,
-      undoStack:     [],
-      redoStack:     [],
-      canUndo:       false,
-      canRedo:       false,
-      selectedId:    null
+      isDirty:          false,
+      activeLevelId:    project.overworld.id,
+      undoStack:        [],
+      redoStack:        [],
+      canUndo:          false,
+      canRedo:          false,
+      selectedId:       null,
+      projectSelected:  false,
+      selectedPlayerId: null,
+      armedPlayerId:    null
     })
   },
 
   // ── Navigation ───────────────────────────────────────────────────────────────
 
-  setActiveLevel: (activeLevelId) => set({ activeLevelId, selectedId: null }),
+  setActiveLevel: (activeLevelId) => set({ activeLevelId, selectedId: null, projectSelected: false, selectedPlayerId: null }),
   setViewMode:    (viewMode) => set({ viewMode }),
   setNavSection:  (navSection) => set(navSection === 'objects'
+    ? { navSection, activeTool: 'select', armedDefinitionId: null }
+    : navSection === 'players'
     ? { navSection, activeTool: 'select', armedDefinitionId: null }
     : { navSection }),
 
@@ -164,11 +186,51 @@ export const useMapStore = create<MapStore>((set, get) => ({
   setActiveTool:      (activeTool) => set((s) => ({
     activeTool,
     selectedId: null,
-    // Preserve armedDefinitionId when switching TO object tool; clear it when leaving
-    armedDefinitionId: activeTool === 'object' ? s.armedDefinitionId : null
+    projectSelected: false,
+    selectedPlayerId: activeTool === 'player_place' ? s.selectedPlayerId : null,
+    armedDefinitionId: activeTool === 'object' ? s.armedDefinitionId : null,
+    armedPlayerId: activeTool === 'player_place' ? s.armedPlayerId : null
   })),
-  setSelected:        (selectedId) => set({ selectedId }),
+  setSelected:        (selectedId) => set({ selectedId, projectSelected: false, selectedPlayerId: null }),
+  setProjectSelected: (projectSelected) => set(
+    projectSelected ? { projectSelected, selectedId: null, selectedPlayerId: null } : { projectSelected }
+  ),
   setArmedDefinition: (armedDefinitionId) => set({ armedDefinitionId }),
+  setSelectedPlayer:  (selectedPlayerId) => set((s) => {
+    if (!selectedPlayerId) return { selectedPlayerId }
+    const player = s.project?.players.find((p) => p.id === selectedPlayerId)
+    const levelId = player?.placement?.levelId
+    return {
+      selectedPlayerId,
+      selectedId:      null,
+      projectSelected: false,
+      navSection:      'players' as const,
+      ...(levelId ? { activeLevelId: levelId } : {})
+    }
+  }),
+  setArmedPlayer: (armedPlayerId) => set({ armedPlayerId }),
+
+  // ── Player management ────────────────────────────────────────────────────────
+
+  addPlayer: () => {
+    const { project, dispatch } = get()
+    if (!project) return
+    const player = {
+      id:        crypto.randomUUID(),
+      name:      `Player ${project.players.length + 1}`,
+      notes:     '',
+      portrait:  null,
+      placement: null
+    }
+    dispatch(new AddPlayerCommand(player))
+    set({ selectedPlayerId: player.id, selectedId: null, projectSelected: false, navSection: 'players' })
+  },
+
+  removePlayer: (playerId) => {
+    const { dispatch } = get()
+    dispatch(new RemovePlayerCommand(playerId))
+    set((s) => s.selectedPlayerId === playerId ? { selectedPlayerId: null } : {})
+  },
 
   // ── Document lifecycle helpers ───────────────────────────────────────────────
 

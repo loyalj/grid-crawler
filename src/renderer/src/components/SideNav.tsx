@@ -3,6 +3,7 @@ import { Text } from '@mantine/core' // used in header
 import { useMapStore, NavSection } from '../store/mapStore'
 import { LevelNav } from './LevelNav'
 import { ObjectsNav } from './ObjectsNav'
+import { PlayersNav } from './PlayersNav'
 import { SettingsNav } from './SettingsPanel'
 import classes from './SideNav.module.css'
 
@@ -34,6 +35,18 @@ function IconObjects({ className }: { className?: string }) {
   )
 }
 
+function IconPlayers({ className }: { className?: string }) {
+  return (
+    <svg className={className} width="20" height="20" viewBox="0 0 20 20" fill="none"
+      stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="7" cy="7" r="3" />
+      <path d="M1 17c0-3.314 2.686-6 6-6s6 2.686 6 6" />
+      <circle cx="14" cy="6" r="2.2" />
+      <path d="M13 14.5c.6-.3 1.3-.5 2-.5 2.21 0 4 1.79 4 4" />
+    </svg>
+  )
+}
+
 function IconSettings({ className }: { className?: string }) {
   return (
     <svg className={className} width="20" height="20" viewBox="0 0 20 20" fill="none"
@@ -53,20 +66,24 @@ const RAIL_ITEMS: Array<{
 }> = [
   { id: 'map',      label: 'Map',      Icon: IconMap      },
   { id: 'objects',  label: 'Objects',  Icon: IconObjects  },
+  { id: 'players',  label: 'Players',  Icon: IconPlayers  },
   { id: 'settings', label: 'Settings', Icon: IconSettings },
 ]
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function SideNav() {
-  const project         = useMapStore((s) => s.project)
-  const selectedId      = useMapStore((s) => s.selectedId)
-  const activeLevelId   = useMapStore((s) => s.activeLevelId)
-  const activeSection   = useMapStore((s) => s.navSection)
-  const setActiveSection = useMapStore((s) => s.setNavSection)
+  const project            = useMapStore((s) => s.project)
+  const selectedId         = useMapStore((s) => s.selectedId)
+  const activeLevelId      = useMapStore((s) => s.activeLevelId)
+  const activeSection      = useMapStore((s) => s.navSection)
+  const setActiveSection   = useMapStore((s) => s.setNavSection)
+  const projectSelected    = useMapStore((s) => s.projectSelected)
+  const setProjectSelected = useMapStore((s) => s.setProjectSelected)
 
   // When something is selected on the canvas, switch to the right panel.
   // Placements are identified by checking the active level's placements list.
+  // Player selections are handled by setSelectedPlayer which sets navSection directly.
   useEffect(() => {
     if (!selectedId) return
     const state = useMapStore.getState()
@@ -83,8 +100,13 @@ export function SideNav() {
   return (
     <div className={classes.sidenav}>
 
-      {/* Header — project name + version */}
-      <div className={classes.header}>
+      {/* Header — project name + version; click to show project info in details panel */}
+      <div
+        className={classes.header}
+        data-active={projectSelected || undefined}
+        onClick={() => { if (project) setProjectSelected(true) }}
+        title="Project info"
+      >
         <Text className={classes.headerTitle} title={project?.name ?? 'Grid Crawler'}>
           {project?.name ?? 'Grid Crawler'}
         </Text>
@@ -113,6 +135,7 @@ export function SideNav() {
         <div className={classes.panel}>
           {activeSection === 'map'      && <LevelNav />}
           {activeSection === 'objects'  && <ObjectsNav />}
+          {activeSection === 'players'  && <PlayersNav />}
           {activeSection === 'settings' && <SettingsNav />}
         </div>
 

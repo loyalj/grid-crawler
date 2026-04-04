@@ -27,10 +27,29 @@ export async function buildCrwlBuffer(project: MapProject): Promise<ArrayBuffer>
   return zip.generateAsync({ type: 'arraybuffer', compression: 'DEFLATE' })
 }
 
+function migrateProject(project: MapProject): MapProject {
+  const migrateLevel = (level: MapProject['overworld']) => ({
+    ...level,
+    rooms: level.rooms.map((r) => ({
+      label:       '',
+      showLabel:   false,
+      labelOffset: { x: 0, y: 0 },
+      notes:       '',
+      ...r
+    }))
+  })
+  return {
+    players: [],   // default for old saves without players
+    ...project,
+    overworld:     migrateLevel(project.overworld),
+    dungeonLevels: project.dungeonLevels.map(migrateLevel)
+  }
+}
+
 export async function parseCrwlBuffer(data: ArrayBuffer): Promise<MapProject> {
   const zip      = await JSZip.loadAsync(data)
   const jsonFile = zip.file('project.json')
   if (!jsonFile) throw new Error('Invalid .crwl file: missing project.json')
   const json = await jsonFile.async('string')
-  return JSON.parse(json) as MapProject
+  return migrateProject(JSON.parse(json) as MapProject)
 }

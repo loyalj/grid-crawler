@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { PointerLockControls } from 'three/examples/jsm/controls/PointerLockControls.js'
-import { Level, Room, Hallway, SurfaceSettings, FloorMaterial, WallMaterial, ObjectDefinition, TokenDefinition, PropDefinition } from '../types/map'
+import { Level, Room, Hallway, SurfaceSettings, FloorMaterial, WallMaterial, ObjectDefinition, TokenDefinition, PropDefinition, Player } from '../types/map'
 import { computePath, expandPath, resolveExitPoints } from './hallwayPath'
 
 export type ViewMode = 'topdown' | 'isometric' | 'fps'
@@ -28,7 +28,7 @@ const WALL_COLORS: Record<WallMaterial, number> = {
   cave:  0x4a4a4a
 }
 
-const SELECTION_COLOR = 0xf5c842
+const SELECTION_COLOR = 0x2dd4bf
 const HOVER_COLOR     = 0xffffff
 const GHOST_COLOR       = 0x7b5eea
 const HALLWAY_PREVIEW   = 0x5eea9a
@@ -64,12 +64,21 @@ export class MapRenderer {
   private selectionGroup: THREE.Group
   private overlayGroup:   THREE.Group  // ghost, move-preview, endpoint-preview
   private hoverGroup:     THREE.Group  // rebuilt each setHover call
+  private labelsGroup:    THREE.Group  // room label sprites
+  private playersGroup:   THREE.Group  // player tokens
 
   // Catalog reference for object rendering
   private catalog: ObjectDefinition[] = []
 
+  // Players reference (project-level; updated via setPlayers)
+  private players: Player[] = []
+  // Map from playerId → THREE.Group so we can reposition during drag
+  private playerMeshMap = new Map<string, THREE.Group>()
+
   // Placement ghost (follows cursor when object tool is armed)
   private placementGhostGroup: THREE.Group
+  // Player placement ghost (follows cursor when player_place tool is armed)
+  private playerGhostGroup: THREE.Group
 
   // Overlay meshes (pre-created, repositioned on demand)
   private hoverRoomMesh:   THREE.Mesh   // reusable single quad for room hover
@@ -100,11 +109,16 @@ export class MapRenderer {
     this.selectionGroup = new THREE.Group()
     this.overlayGroup   = new THREE.Group()
     this.hoverGroup     = new THREE.Group()
+    this.labelsGroup    = new THREE.Group()
+    this.playersGroup   = new THREE.Group()
 
     this.placementGhostGroup = new THREE.Group()
     this.placementGhostGroup.visible = false
 
-    this.scene.add(this.mapGroup, this.wallGroup, this.gridGroup, this.objectsGroup, this.selectionGroup, this.hoverGroup, this.overlayGroup, this.placementGhostGroup)
+    this.playerGhostGroup = new THREE.Group()
+    this.playerGhostGroup.visible = false
+
+    this.scene.add(this.mapGroup, this.wallGroup, this.gridGroup, this.objectsGroup, this.selectionGroup, this.hoverGroup, this.overlayGroup, this.labelsGroup, this.playersGroup, this.placementGhostGroup, this.playerGhostGroup)
 
     // Pre-create overlay meshes (scaled on demand)
     this.hoverRoomMesh        = this.makeFlatQuad(HOVER_COLOR,     0.12)
@@ -265,6 +279,9 @@ export class MapRenderer {
     this.disposeGroup(this.wallGroup)
     this.disposeGroup(this.gridGroup)
     this.disposeGroup(this.objectsGroup)
+    this.disposeGroup(this.labelsGroup)
+    this.disposeGroup(this.playersGroup)
+    this.playerMeshMap.clear()
     this.selectionGroup.clear()  // selection is invalidated on full reload
 
     const { gridWidth, gridHeight, wallMaterial } = level.settings
@@ -416,6 +433,18 @@ export class MapRenderer {
         this.renderProp(placement.x, placement.y, def.visual.naturalWidth, def.visual.naturalHeight, rotation, placement.id)
       }
     }
+
+    // ── Room labels ──
+    for (const room of level.rooms) {
+      if (room.showLabel) this.renderRoomLabel(room)
+    }
+
+    // ── Player tokens ──
+    for (const player of this.players) {
+      if (player.placement?.levelId === level.id) {
+        this.renderPlayerToken(player, 1.0, this.playersGroup, player.placement.x, player.placement.y)
+      }
+    }
   }
 
   private renderRoomFloor(room: Room, defaults: SurfaceSettings): void {
@@ -451,6 +480,233 @@ export class MapRenderer {
     const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true }))
     mesh.userData['roomId'] = room.id
     this.mapGroup.add(mesh)
+  }
+
+  private renderRoomLabel(room: Room): void {
+    const text   = room.label || room.name
+    const CW     = 256
+    const CH     = 40
+    const oc     = document.createElement('canvas')
+    oc.width     = CW
+    oc.height    = CH
+    const ctx    = oc.getContext('2d')!
+
+    // Semi-transparent dark pill background
+    ctx.fillStyle = 'rgba(0,0,0,0.65)'
+    ctx.beginPath()
+    ctx.roundRect(3, 3, CW - 6, CH - 6, 6)
+    ctx.fill()
+
+    // White label text
+    ctx.fillStyle    = '#ffffff'
+    ctx.font         = 'bold 17px sans-serif'
+    ctx.textAlign    = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(text, CW / 2, CH / 2, CW - 16)
+
+    const tex   = new THREE.CanvasTexture(oc)
+    const planeW = Math.min(room.width * 0.85, 3.5)
+    const planeH = 0.45
+    const geo   = new THREE.PlaneGeometry(planeW, planeH)
+    geo.rotateX(-Math.PI / 2)
+    const mesh  = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+      map: tex, transparent: true, depthWrite: false
+    }))
+    const cx = (room.x + room.width  / 2 + room.labelOffset.x) * CELL_SIZE
+    const cz = (room.y + room.height / 2 + room.labelOffset.y) * CELL_SIZE
+    mesh.position.set(cx, 0.04, cz)
+    mesh.renderOrder       = 5
+    mesh.userData['labelRoomId'] = room.id
+    this.labelsGroup.add(mesh)
+  }
+
+  /** Move a label sprite in real-time during drag (no command dispatched yet). */
+  moveLabelPreview(roomId: string, offsetX: number, offsetY: number): void {
+    const room = this.currentLevel?.rooms.find((r) => r.id === roomId)
+    if (!room) return
+    for (const child of this.labelsGroup.children) {
+      if ((child as THREE.Mesh).userData['labelRoomId'] === roomId) {
+        child.position.set(
+          (room.x + room.width  / 2 + offsetX) * CELL_SIZE,
+          0.04,
+          (room.y + room.height / 2 + offsetY) * CELL_SIZE
+        )
+        break
+      }
+    }
+  }
+
+  /** Returns the room whose visible label is under (fx, fy) in grid coordinates. */
+  // ── Player token rendering ────────────────────────────────────────────────────
+
+  /** Store the project-level players list. Called whenever the project changes. */
+  setPlayers(players: Player[]): void {
+    this.players = players
+  }
+
+  /**
+   * Render a square rounded-corner player token.
+   * The mesh is placed at local origin so the group can be repositioned freely.
+   * @param worldX  World X position in grid units (ignored when rendering into ghost group)
+   * @param worldY  World Y position in grid units
+   */
+  private renderPlayerToken(
+    player: Player, opacity: number, group: THREE.Group,
+    worldX: number, worldY: number
+  ): void {
+    const SIZE = 128
+    const SIDE = 0.88   // grid units
+
+    const oc    = document.createElement('canvas')
+    oc.width    = SIZE
+    oc.height   = SIZE
+    const ctx   = oc.getContext('2d')!
+    const tex   = new THREE.CanvasTexture(oc)
+
+    const drawCanvas = (img: HTMLImageElement | null) => {
+      const r = SIZE * 0.1
+      ctx.clearRect(0, 0, SIZE, SIZE)
+
+      ctx.save()
+      ctx.beginPath()
+      ctx.roundRect(0, 0, SIZE, SIZE, r)
+      ctx.clip()
+
+      if (img) {
+        ctx.drawImage(img, 0, 0, SIZE, SIZE)
+      } else {
+        ctx.fillStyle = '#1a5c5c'
+        ctx.fillRect(0, 0, SIZE, SIZE)
+        const initials = player.name.trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('') || '?'
+        ctx.fillStyle = '#2dd4bf'
+        ctx.font      = `bold ${SIZE * 0.38}px sans-serif`
+        ctx.textAlign    = 'center'
+        ctx.textBaseline = 'middle'
+        ctx.fillText(initials.toUpperCase(), SIZE / 2, SIZE / 2)
+      }
+      ctx.restore()
+
+      const bw = SIZE * 0.06
+      ctx.save()
+      ctx.strokeStyle = 'rgba(45, 212, 191, 0.85)'
+      ctx.lineWidth   = bw
+      ctx.beginPath()
+      ctx.roundRect(bw / 2, bw / 2, SIZE - bw, SIZE - bw, r)
+      ctx.stroke()
+      ctx.restore()
+
+      tex.needsUpdate = true
+    }
+
+    const geo = new THREE.PlaneGeometry(SIDE, SIDE)
+    geo.rotateX(-Math.PI / 2)
+    const mat  = new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity, depthWrite: false })
+    const mesh = new THREE.Mesh(geo, mat)
+    // Mesh at local origin — the group carries the world position
+    mesh.position.set(0, 0.025, 0)
+    mesh.renderOrder = 10
+    mesh.userData['playerId'] = player.id
+
+    const tokenGroup = new THREE.Group()
+    tokenGroup.position.set(worldX * CELL_SIZE, 0, worldY * CELL_SIZE)
+    tokenGroup.add(mesh)
+    group.add(tokenGroup)
+    this.playerMeshMap.set(player.id, tokenGroup)
+
+    if (player.portrait) {
+      const img = new Image()
+      img.onload = () => { drawCanvas(img) }
+      img.onerror = () => drawCanvas(null)
+      img.src = player.portrait
+      drawCanvas(null)   // draw fallback immediately; portrait overwrites on load
+    } else {
+      drawCanvas(null)
+    }
+  }
+
+  /** Move a player token during drag (no dispatch). Moves the token's sub-group. */
+  movePlayerPreview(playerId: string, fx: number, fy: number): void {
+    const tokenGroup = this.playerMeshMap.get(playerId)
+    if (!tokenGroup) return
+    tokenGroup.position.set(fx * CELL_SIZE, 0, fy * CELL_SIZE)
+  }
+
+  /** AABB hit-test: returns the player token hit at float (fx, fy), or null. */
+  hitPlayer(fx: number, fy: number): Player | null {
+    const HALF = 0.44   // half of 0.88 grid units
+    for (let i = this.players.length - 1; i >= 0; i--) {
+      const player = this.players[i]
+      if (!player.placement) continue
+      if (player.placement.levelId !== this.currentLevel?.id) continue
+      const dx = Math.abs(fx - player.placement.x)
+      const dy = Math.abs(fy - player.placement.y)
+      if (dx <= HALF && dy <= HALF) return player
+    }
+    return null
+  }
+
+  /** Build or rebuild the player placement ghost for the given player. */
+  setPlayerGhost(player: Player | null): void {
+    this.disposeGroup(this.playerGhostGroup)
+    this.playerGhostGroup.visible = false
+    if (!player) return
+    // Render ghost at local origin (0,0) — movePlayerGhost repositions the group
+    this.renderPlayerToken(player, 0.5, this.playerGhostGroup, 0, 0)
+    // renderPlayerToken stores the sub-group in playerMeshMap; remove it so it doesn't interfere
+    this.playerMeshMap.delete(player.id)
+  }
+
+  /** Reposition the player ghost. Called every mousemove in player_place mode. */
+  movePlayerGhost(fx: number, fy: number): void {
+    if (this.playerGhostGroup.children.length === 0) return
+    this.playerGhostGroup.position.set(fx * CELL_SIZE, 0.03, fy * CELL_SIZE)
+    this.playerGhostGroup.visible = true
+  }
+
+  /** Hide the player ghost without destroying it. */
+  hidePlayerGhost(): void {
+    this.playerGhostGroup.visible = false
+  }
+
+  /** Remove the player ghost entirely. */
+  clearPlayerGhost(): void {
+    this.disposeGroup(this.playerGhostGroup)
+    this.playerGhostGroup.visible = false
+  }
+
+  /** Add a teal selection highlight around a player token. */
+  setPlayerSelection(player: Player | null): void {
+    // Remove any existing player selection highlight
+    const existing = this.selectionGroup.getObjectByName('player_sel')
+    if (existing) {
+      this.selectionGroup.remove(existing)
+      const m = existing as THREE.Mesh
+      m.geometry?.dispose()
+    }
+    if (!player?.placement) return
+    const { x, y } = player.placement
+    const SIDE = 0.88
+    const ringGeo = new THREE.PlaneGeometry(SIDE + 0.16, SIDE + 0.16)
+    ringGeo.rotateX(-Math.PI / 2)
+    const mat  = new THREE.MeshBasicMaterial({ color: SELECTION_COLOR, transparent: true, opacity: 0.35, depthWrite: false })
+    const mesh = new THREE.Mesh(ringGeo, mat)
+    mesh.name = 'player_sel'
+    mesh.position.set(x * CELL_SIZE, 0.024, y * CELL_SIZE)
+    mesh.renderOrder = 9
+    this.selectionGroup.add(mesh)
+  }
+
+  hitLabel(fx: number, fy: number, level: Level): Room | null {
+    for (let i = level.rooms.length - 1; i >= 0; i--) {
+      const room = level.rooms[i]
+      if (!room.showLabel) continue
+      const lx = room.x + room.width  / 2 + room.labelOffset.x
+      const ly = room.y + room.height / 2 + room.labelOffset.y
+      const hw = Math.min(room.width * 0.85 / 2, 1.75)
+      const hh = 0.3
+      if (Math.abs(fx - lx) <= hw && Math.abs(fy - ly) <= hh) return room
+    }
+    return null
   }
 
   private renderToken(x: number, y: number, def: TokenDefinition, placementId: string): void {
@@ -895,7 +1151,9 @@ export class MapRenderer {
     this.disposeGroup(this.objectsGroup)
     this.disposeGroup(this.selectionGroup)
     this.disposeGroup(this.hoverGroup)
+    this.disposeGroup(this.playersGroup)
     this.disposeGroup(this.placementGhostGroup)
+    this.disposeGroup(this.playerGhostGroup)
     this.renderer.dispose()
   }
 }

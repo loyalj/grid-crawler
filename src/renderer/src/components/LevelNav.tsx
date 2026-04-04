@@ -117,7 +117,7 @@ function LevelTree({ level, onContextMenu }: LevelTreeProps) {
             <Badge
               size="xs"
               variant="outline"
-              color={level.depth === 0 ? 'yellow' : 'gray'}
+              color={level.depth === 0 ? 'teal' : 'gray'}
               style={{ flexShrink: 0, fontSize: 9 }}
             >
               {level.depth === 0 ? 'OW' : `B${level.depth}`}
@@ -141,8 +141,8 @@ function LevelTree({ level, onContextMenu }: LevelTreeProps) {
                   onClick={() => selectItem(room.id)}
                   onContextMenu={(e) => openRoomMenu(e, room.id)}
                 >
-                  <Text className={classes.leafLabel} title={room.name}>
-                    {room.name || 'Unnamed Room'}
+                  <Text className={classes.leafLabel} title={room.label || room.name}>
+                    {room.label || room.name || 'Unnamed Room'}
                   </Text>
                   <Text className={classes.leafMeta}>
                     {room.width}×{room.height}
@@ -159,7 +159,7 @@ function LevelTree({ level, onContextMenu }: LevelTreeProps) {
                 const roomA = level.rooms.find((r) => r.id === hallway.roomAId)
                 const roomB = level.rooms.find((r) => r.id === hallway.roomBId)
                 const label = roomA && roomB
-                  ? `${roomA.name} → ${roomB.name}`
+                  ? `${roomA.label || roomA.name} → ${roomB.label || roomB.name}`
                   : 'Hallway'
                 return (
                   <UnstyledButton

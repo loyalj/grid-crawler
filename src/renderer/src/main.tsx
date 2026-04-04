@@ -8,16 +8,8 @@ import { useAppSettings } from './store/appSettingsStore'
 
 const theme = createTheme({
   fontFamily: "'Segoe UI', system-ui, sans-serif",
-  primaryColor: 'yellow',
+  primaryColor: 'teal',
   primaryShade: 6,
-  colors: {
-    // Map accent gold onto a Mantine color scale
-    yellow: [
-      '#fdf6e3', '#f5e6c0', '#e8cc8a', '#d9b060',
-      '#c8a96e', '#b8933a', '#9a7a28', '#7a6118',
-      '#5a4610', '#3a2c08'
-    ]
-  },
   defaultRadius: 'sm',
   components: {
     Button: {

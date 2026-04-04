@@ -40,8 +40,12 @@ export interface CellOverride {
 
 export interface Room {
   id:          string
-  name:        string
+  name:        string          // auto-generated "Room N" identifier
+  label:       string          // user-set display name (e.g. "Guard Room"); empty = use name
+  showLabel:   boolean         // whether to render the label on the canvas
+  labelOffset: { x: number; y: number }  // offset from room center in grid cells
   description: string
+  notes:       string
   /** Grid column of the top-left corner */
   x:           number
   /** Grid row of the top-left corner */
@@ -171,6 +175,18 @@ export interface PropPlacement extends PlacementBase {
 
 export type ObjectPlacement = TokenPlacement | PropPlacement
 
+// ── Players ────────────────────────────────────────────────────────────────────
+
+export interface Player {
+  id:        string
+  name:      string
+  notes:     string
+  /** Base64 PNG data URL (256×256, transparency preserved); null = no portrait */
+  portrait:  string | null
+  /** At most one active placement across all levels */
+  placement: { levelId: string; x: number; y: number } | null
+}
+
 // ── Project ────────────────────────────────────────────────────────────────────
 
 export interface MapMetadata {
@@ -188,6 +204,7 @@ export interface MapProject {
   createdAt:     string
   updatedAt:     string
   metadata:      MapMetadata
+  players:       Player[]
   /** Project-tier object definitions only. App-tier live in resources/catalog/. */
   projectCatalog: ObjectDefinition[]
   overworld:     Level
