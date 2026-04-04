@@ -64,8 +64,10 @@ function buildMenu() {
     {
       label: 'View',
       submenu: [
-        { label: 'Top-Down',      click: () => send('view:topdown') },
-        { label: 'Isometric',     click: () => send('view:isometric') },
+        { label: '2D Layout',       click: () => send('view:layout') },
+        { label: '2D Textured',     click: () => send('view:textured') },
+        { type: 'separator' as const },
+        { label: 'Isometric',       click: () => send('view:isometric') },
         { label: 'FPS Walkthrough', click: () => send('view:fps') },
         ...(isDev ? [
           { type: 'separator' as const },
@@ -286,4 +288,48 @@ ipcMain.handle('catalog:loadApp', async () => {
   }
 
   return [...tokens, ...props]
+})
+
+// ── Floor texture catalog ─────────────────────────────────────────────────────
+
+function getFloorTextureDir(): string {
+  if (isDev) return join(app.getAppPath(), 'resources', 'textures', 'floor')
+  return join(process.resourcesPath, 'textures', 'floor')
+}
+
+ipcMain.handle('floorCatalog:loadApp', async () => {
+  const dir = getFloorTextureDir()
+  const catalogPath = join(dir, 'catalog.json')
+  if (!existsSync(catalogPath)) {
+    console.warn('[floorCatalog] missing catalog.json at', catalogPath)
+    return []
+  }
+  let defs: Array<Record<string, unknown>>
+  try {
+    defs = JSON.parse(readFileSync(catalogPath, 'utf8'))
+  } catch (e) {
+    console.warn('[floorCatalog] failed to parse catalog.json:', e)
+    return []
+  }
+  // Read each texture file and encode as a data: URL (file:// is blocked in renderer)
+  for (const def of defs) {
+    def.tier = 'app'
+    def.textureUrl = ''
+    if (typeof def.texture === 'string') {
+      const texPath = join(dir, def.texture as string)
+      if (existsSync(texPath)) {
+        try {
+          const buf  = readFileSync(texPath)
+          const ext  = (def.texture as string).split('.').pop()?.toLowerCase() ?? 'jpg'
+          const mime = ext === 'png' ? 'image/png' : 'image/jpeg'
+          def.textureUrl = `data:${mime};base64,${buf.toString('base64')}`
+        } catch (e) {
+          console.warn('[floorCatalog] failed to read texture file:', texPath, e)
+        }
+      } else {
+        console.warn('[floorCatalog] missing texture file:', texPath)
+      }
+    }
+  }
+  return defs
 })

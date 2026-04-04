@@ -12,7 +12,8 @@ interface Window {
     openFile: () => Promise<{ filePath: string; data: ArrayBuffer } | null>
     saveFile: (defaultName: string) => Promise<string | null>
     writeFile: (filePath: string, data: ArrayBuffer) => Promise<boolean>
-    loadAppCatalog: () => Promise<unknown[]>
+    loadAppCatalog:      () => Promise<unknown[]>
+    loadAppFloorCatalog: () => Promise<unknown[]>
     setTitle: (title: string) => void
     confirmClose: () => void
     setSelectionKind: (kind: 'room' | 'hallway' | 'placement' | null) => void

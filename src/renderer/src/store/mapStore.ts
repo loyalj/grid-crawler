@@ -1,13 +1,14 @@
 import { create } from 'zustand'
-import { MapProject, Level, LevelSettings, DEFAULT_SETTINGS, ObjectDefinition, Room, ObjectPlacement, Hallway } from '../types/map'
+import { MapProject, Level, LevelSettings, DEFAULT_SETTINGS, ObjectDefinition, FloorTextureDefinition, Room, ObjectPlacement, Hallway } from '../types/map'
 import { Command } from '../types/commands'
 import { AddLevelCommand, RemoveLevelCommand, AddPlayerCommand, RemovePlayerCommand } from '../engine/commands'
 
-export type ViewMode  = 'topdown' | 'isometric' | 'fps'
+export type ViewMode  = 'layout' | 'textured' | 'isometric' | 'fps'
 
 export type ClipboardPayload =
   | { kind: 'room';      room: Room; hallways: Hallway[] }
   | { kind: 'placement'; placement: ObjectPlacement }
+  | { kind: 'player';    playerId: string }
 export type EditorTool = 'room' | 'hallway' | 'select' | 'object' | 'player_place'
 export type NavSection = 'map' | 'objects' | 'players' | 'settings'
 
@@ -29,16 +30,17 @@ function createProject(name: string, width: number, height: number): MapProject 
   const now = new Date().toISOString()
   const settings: LevelSettings = { ...DEFAULT_SETTINGS, gridWidth: width, gridHeight: height }
   return {
-    id:             crypto.randomUUID(),
+    id:                   crypto.randomUUID(),
     name,
-    version:        '1.0.0',
-    createdAt:      now,
-    updatedAt:      now,
-    metadata:       {},
-    players:        [],
-    projectCatalog: [],
-    overworld:      createLevel('Overworld', 0, settings),
-    dungeonLevels:  [createLevel('Level 1',  1, settings)]
+    version:              '1.0.0',
+    createdAt:            now,
+    updatedAt:            now,
+    metadata:             {},
+    players:              [],
+    projectFloorTextures: [],
+    projectCatalog:       [],
+    overworld:            createLevel('Overworld', 0, settings),
+    dungeonLevels:        [createLevel('Level 1',  1, settings)]
   }
 }
 
@@ -63,6 +65,10 @@ interface MapStore {
   // App catalog (loaded from disk at startup, read-only)
   appCatalog: ObjectDefinition[]
   setAppCatalog: (catalog: ObjectDefinition[]) => void
+
+  // Floor texture catalog (app-tier loaded at startup, combined with project-tier at runtime)
+  appFloorCatalog: FloorTextureDefinition[]
+  setAppFloorCatalog: (catalog: FloorTextureDefinition[]) => void
 
   // Editor UI (reactive for toolbar etc.)
   viewMode:           ViewMode
@@ -124,6 +130,9 @@ export const useMapStore = create<MapStore>((set, get) => ({
 
   appCatalog: [],
   setAppCatalog: (appCatalog) => set({ appCatalog }),
+
+  appFloorCatalog: [],
+  setAppFloorCatalog: (appFloorCatalog) => set({ appFloorCatalog }),
 
   viewMode:          'topdown',
   activeTool:        'select',

@@ -12,10 +12,14 @@ const LABELS: Record<ContextMenuAction['kind'], string> = {
   copy_object:     'Copy',
   cut_object:      'Cut',
   delete_object:   'Delete Object',
+  unplace_player:  'Unplace',
+  cut_player:      'Cut',
+  delete_player:   'Delete Player',
+  paste_player:    'Paste Player',
   paste:           'Paste'
 }
 
-const DANGER_KINDS = new Set<ContextMenuAction['kind']>(['delete_hallway', 'remove_waypoint', 'delete_room', 'delete_level', 'delete_object'])
+const DANGER_KINDS = new Set<ContextMenuAction['kind']>(['delete_hallway', 'remove_waypoint', 'delete_room', 'delete_level', 'delete_object', 'delete_player'])
 
 interface Props {
   screenX: number
@@ -55,7 +59,7 @@ export function ContextMenu({ screenX, screenY, items, onAction, onClose }: Prop
           className={`context-menu-item${DANGER_KINDS.has(item.kind) ? ' context-menu-item--danger' : ''}`}
           onClick={() => { onAction(item); onClose() }}
         >
-          {LABELS[item.kind]}
+          {(item as { label?: string }).label ?? LABELS[item.kind]}
         </button>
       ))}
     </div>

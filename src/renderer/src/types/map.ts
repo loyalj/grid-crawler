@@ -1,6 +1,22 @@
+// ── Floor texture catalog ──────────────────────────────────────────────────────
+
+export type FloorTextureCategory = 'stone' | 'wood' | 'earth' | 'water' | 'special'
+
+export interface FloorTextureDefinition {
+  id:          string               // matches FloorMaterial value; 'stone','wood' etc for built-ins
+  name:        string
+  tier:        'app' | 'project'
+  category:    FloorTextureCategory
+  layoutColor: number               // hex color used in Layout mode
+  texture:     string               // relative path (app) or zip entry path (project)
+  textureUrl:  string               // resolved absolute URL at load time; NOT persisted
+  tileSize:    number               // grid cells per one texture repeat
+}
+
 // ── Material types ─────────────────────────────────────────────────────────────
 
-export type FloorMaterial = 'stone' | 'wood' | 'dirt' | 'water' | 'lava' | 'pit'
+/** A floor material ID — matches a FloorTextureDefinition.id */
+export type FloorMaterial = string
 export type WallMaterial  = 'stone' | 'wood' | 'brick' | 'cave'
 
 // ── Cascade settings (Level → Room → Hallway → Cell) ──────────────────────────
@@ -14,7 +30,7 @@ export interface SurfaceSettings {
 }
 
 export const DEFAULT_SETTINGS: SurfaceSettings = {
-  floorMaterial: 'stone',
+  floorMaterial: 'stone',  // matches built-in FloorTextureDefinition id
   wallMaterial:  'stone',
   ceilingHeight: 2,
   wallThickness: 1,
@@ -205,6 +221,8 @@ export interface MapProject {
   updatedAt:     string
   metadata:      MapMetadata
   players:       Player[]
+  /** Project-tier floor textures; app-tier live in resources/textures/floor/. */
+  projectFloorTextures: FloorTextureDefinition[]
   /** Project-tier object definitions only. App-tier live in resources/catalog/. */
   projectCatalog: ObjectDefinition[]
   overworld:     Level

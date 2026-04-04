@@ -3,7 +3,8 @@
     "allow": [
       "Bash(npm install:*)",
       "Bash(node -e \"const pkg = require\\(''./node_modules/three/package.json''\\); console.log\\(pkg.version\\)\")",
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "Bash(npx tsc:*)"
     ]
   }
 }

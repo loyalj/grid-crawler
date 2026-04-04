@@ -1,10 +1,10 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { PointerLockControls } from 'three/examples/jsm/controls/PointerLockControls.js'
-import { Level, Room, Hallway, SurfaceSettings, FloorMaterial, WallMaterial, ObjectDefinition, TokenDefinition, PropDefinition, Player } from '../types/map'
+import { Level, Room, Hallway, SurfaceSettings, WallMaterial, ObjectDefinition, TokenDefinition, PropDefinition, Player, FloorTextureDefinition } from '../types/map'
 import { computePath, expandPath, resolveExitPoints } from './hallwayPath'
 
-export type ViewMode = 'topdown' | 'isometric' | 'fps'
+export type ViewMode = 'layout' | 'textured' | 'isometric' | 'fps'
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -12,14 +12,8 @@ const CELL_SIZE   = 1
 const WALL_HEIGHT = 1.5
 const WALL_DEPTH  = 0.15
 
-const FLOOR_COLORS: Record<FloorMaterial, number> = {
-  stone: 0x4a3f35,
-  wood:  0x6b4c1e,
-  dirt:  0x5a4a32,
-  water: 0x1a6b8a,
-  lava:  0xcc3300,
-  pit:   0x0d0d0d
-}
+/** Fallback layout color when a floor material ID isn't in the catalog. */
+const FALLBACK_FLOOR_COLOR = 0x4a3f35
 
 const WALL_COLORS: Record<WallMaterial, number> = {
   stone: 0x6b6b6b,
@@ -69,6 +63,13 @@ export class MapRenderer {
 
   // Catalog reference for object rendering
   private catalog: ObjectDefinition[] = []
+
+  // Floor texture catalog (app + project combined)
+  private floorCatalog: FloorTextureDefinition[] = []
+  // Pre-loaded THREE.Texture instances keyed by FloorTextureDefinition.id
+  private floorTextureCache = new Map<string, THREE.Texture>()
+  // Current view mode
+  private viewMode: ViewMode = 'layout'
 
   // Players reference (project-level; updated via setPlayers)
   private players: Player[] = []
@@ -227,17 +228,21 @@ export class MapRenderer {
 
   // ── View mode ─────────────────────────────────────────────────────────────────
 
-  setViewMode(mode: ViewMode, gridWidth = 48, gridHeight = 48): void {
+  setViewMode(mode: ViewMode): void {
     this.viewMode = mode
     this.orbitControls?.dispose()
     this.fpsControls?.dispose()
     this.orbitControls = null
     this.fpsControls   = null
 
+    const gridWidth  = this.currentLevel?.settings.gridWidth  ?? 48
+    const gridHeight = this.currentLevel?.settings.gridHeight ?? 48
     const cx = (gridWidth  * CELL_SIZE) / 2
     const cz = (gridHeight * CELL_SIZE) / 2
 
     switch (mode) {
+      case 'layout':
+      case 'textured':
       case 'topdown': {
         this.camera = this.createTopDownCamera(cx, cz)
         const oc = new OrbitControls(this.camera, this.canvas)
@@ -265,12 +270,37 @@ export class MapRenderer {
         break
       }
     }
+
+    if (this.currentLevel) this.loadLevel(this.currentLevel)
   }
 
   // ── Level rendering ───────────────────────────────────────────────────────────
 
   setCatalog(catalog: ObjectDefinition[]): void {
     this.catalog = catalog
+  }
+
+  /** Update the combined floor texture catalog and pre-load all textures. */
+  setFloorCatalog(defs: FloorTextureDefinition[]): void {
+    this.floorCatalog = defs
+
+    // Dispose textures that are no longer in the catalog
+    const incomingIds = new Set(defs.map((d) => d.id))
+    for (const [id, tex] of this.floorTextureCache) {
+      if (!incomingIds.has(id)) { tex.dispose(); this.floorTextureCache.delete(id) }
+    }
+
+    // Load any new textures
+    const loader = new THREE.TextureLoader()
+    for (const def of defs) {
+      if (this.floorTextureCache.has(def.id)) continue
+      if (!def.textureUrl) continue
+      const tex = loader.load(def.textureUrl, () => {
+        tex.wrapS = tex.wrapT = THREE.RepeatWrapping
+        tex.needsUpdate = true
+      })
+      this.floorTextureCache.set(def.id, tex)
+    }
   }
 
   loadLevel(level: Level): void {
@@ -308,15 +338,16 @@ export class MapRenderer {
 
       const centerline   = computePath(roomA, roomB, hallway.waypoints, hallway.exitA, hallway.exitB)
       const path         = expandPath(centerline, hallway.width)
-      const material     = hallway.settings.floorMaterial ?? level.settings.floorMaterial
-      const color        = FLOOR_COLORS[material]
+      const materialId   = hallway.settings.floorMaterial ?? level.settings.floorMaterial
+      const color        = this.getLayoutColor(materialId)
 
       const corridorCells = path.filter((c) => !floorSet.has(`${c.x},${c.y}`))
       for (const c of corridorCells) floorSet.add(`${c.x},${c.y}`)
 
       if (corridorCells.length === 0) continue
 
-      // Render hallway cells as a merged vertex-colored geometry
+      // Render hallway cells as a merged vertex-colored geometry (layout) or
+      // per-cell textured quads (textured). Layout mode is always a merged mesh.
       const positions: number[] = []
       const colors:    number[] = []
       const indices:   number[] = []
@@ -342,7 +373,25 @@ export class MapRenderer {
         geo.setAttribute('color',    new THREE.Float32BufferAttribute(colors,    3))
         geo.setIndex(indices)
         geo.computeVertexNormals()
-        this.mapGroup.add(new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true })))
+        const hallwayTex = this.viewMode === 'textured'
+          ? this.floorTextureCache.get(materialId)
+          : undefined
+        let hallwayMat: THREE.Material
+        if (hallwayTex) {
+          const t = hallwayTex.clone()
+          t.wrapS = t.wrapT = THREE.RepeatWrapping
+          // Approximate repeat based on corridor bounding box
+          const def = this.getFloorDef(materialId)
+          t.repeat.set(
+            (corridorCells.length / (def?.tileSize ?? 2)),
+            1
+          )
+          t.needsUpdate = true
+          hallwayMat = new THREE.MeshStandardMaterial({ map: t })
+        } else {
+          hallwayMat = new THREE.MeshLambertMaterial({ vertexColors: true })
+        }
+        this.mapGroup.add(new THREE.Mesh(geo, hallwayMat))
       }
     }
 
@@ -447,9 +496,28 @@ export class MapRenderer {
     }
   }
 
+  /** Resolve a floor material ID to its catalog definition, or null. */
+  private getFloorDef(materialId: string): FloorTextureDefinition | null {
+    return this.floorCatalog.find((d) => d.id === materialId) ?? null
+  }
+
+  /** Resolve the layout color for a material ID (falls back to FALLBACK_FLOOR_COLOR). */
+  private getLayoutColor(materialId: string): number {
+    return this.getFloorDef(materialId)?.layoutColor ?? FALLBACK_FLOOR_COLOR
+  }
+
   private renderRoomFloor(room: Room, defaults: SurfaceSettings): void {
-    const material = room.settings.floorMaterial ?? defaults.floorMaterial
-    const color    = FLOOR_COLORS[material]
+    const materialId = room.settings.floorMaterial ?? defaults.floorMaterial
+
+    if (this.viewMode === 'textured') {
+      this.renderRoomFloorTextured(room, materialId)
+    } else {
+      this.renderRoomFloorLayout(room, materialId)
+    }
+  }
+
+  private renderRoomFloorLayout(room: Room, materialId: string): void {
+    const color = this.getLayoutColor(materialId)
     const r = ((color >> 16) & 0xff) / 255
     const g = ((color >> 8)  & 0xff) / 255
     const b = (color & 0xff)          / 255
@@ -478,6 +546,49 @@ export class MapRenderer {
     geo.computeVertexNormals()
 
     const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true }))
+    mesh.userData['roomId'] = room.id
+    this.mapGroup.add(mesh)
+  }
+
+  private renderRoomFloorTextured(room: Room, materialId: string): void {
+    const def = this.getFloorDef(materialId)
+    const tex = def ? this.floorTextureCache.get(def.id) : undefined
+
+    if (!tex) {
+      // Texture not loaded yet — fall back to layout color
+      this.renderRoomFloorLayout(room, materialId)
+      return
+    }
+
+    const tileSize = def!.tileSize
+    const w = room.width  * CELL_SIZE
+    const h = room.height * CELL_SIZE
+
+    // Single large plane covering the whole room, UV-mapped for tiling
+    const geo = new THREE.PlaneGeometry(w, h)
+    geo.rotateX(-Math.PI / 2)
+
+    // Remap UVs so the texture repeats at tileSize-cell intervals
+    const uvs = geo.attributes.uv
+    const repeatU = w / tileSize
+    const repeatV = h / tileSize
+    for (let i = 0; i < uvs.count; i++) {
+      uvs.setXY(i, uvs.getX(i) * repeatU, uvs.getY(i) * repeatV)
+    }
+    uvs.needsUpdate = true
+
+    // Clone texture so each room can have its own repeat without affecting others
+    const roomTex = tex.clone()
+    roomTex.wrapS  = roomTex.wrapT = THREE.RepeatWrapping
+    roomTex.needsUpdate = true
+
+    const mat  = new THREE.MeshStandardMaterial({ map: roomTex })
+    const mesh = new THREE.Mesh(geo, mat)
+    mesh.position.set(
+      (room.x + room.width  / 2) * CELL_SIZE,
+      0,
+      (room.y + room.height / 2) * CELL_SIZE
+    )
     mesh.userData['roomId'] = room.id
     this.mapGroup.add(mesh)
   }
@@ -600,11 +711,11 @@ export class MapRenderer {
 
     const geo = new THREE.PlaneGeometry(SIDE, SIDE)
     geo.rotateX(-Math.PI / 2)
-    const mat  = new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity, depthWrite: false })
+    const mat  = new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity, depthWrite: false, depthTest: false })
     const mesh = new THREE.Mesh(geo, mat)
     // Mesh at local origin — the group carries the world position
     mesh.position.set(0, 0.025, 0)
-    mesh.renderOrder = 10
+    mesh.renderOrder = 11
     mesh.userData['playerId'] = player.id
 
     const tokenGroup = new THREE.Group()
@@ -718,9 +829,9 @@ export class MapRenderer {
     const ringGeo = new THREE.RingGeometry(0.37, 0.43, 32)
     ringGeo.rotateX(-Math.PI / 2)
     const ringMesh = new THREE.Mesh(ringGeo,
-      new THREE.MeshBasicMaterial({ color: borderColor, side: THREE.DoubleSide }))
+      new THREE.MeshBasicMaterial({ color: borderColor, side: THREE.DoubleSide, depthTest: false }))
     ringMesh.position.set(cx, 0.02, cz)
-    ringMesh.renderOrder = 3
+    ringMesh.renderOrder = 6
     ringMesh.userData['placementId'] = placementId
     this.objectsGroup.add(ringMesh)
 
@@ -728,9 +839,9 @@ export class MapRenderer {
     const fillGeo = new THREE.CircleGeometry(0.37, 32)
     fillGeo.rotateX(-Math.PI / 2)
     const fillMesh = new THREE.Mesh(fillGeo,
-      new THREE.MeshBasicMaterial({ color: bgColor }))
+      new THREE.MeshBasicMaterial({ color: bgColor, depthTest: false }))
     fillMesh.position.set(cx, 0.02, cz)
-    fillMesh.renderOrder = 3
+    fillMesh.renderOrder = 6
     fillMesh.userData['placementId'] = placementId
     this.objectsGroup.add(fillMesh)
 
@@ -760,9 +871,9 @@ export class MapRenderer {
       const iconGeo = new THREE.PlaneGeometry(0.62, 0.62)
       iconGeo.rotateX(-Math.PI / 2)
       const iconMesh = new THREE.Mesh(iconGeo,
-        new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }))
+        new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, depthTest: false }))
       iconMesh.position.set(cx, 0.021, cz)
-      iconMesh.renderOrder = 4
+      iconMesh.renderOrder = 7
       iconMesh.userData['placementId'] = placementId
       this.objectsGroup.add(iconMesh)
     }
@@ -773,10 +884,10 @@ export class MapRenderer {
     const geo = new THREE.PlaneGeometry(w * CELL_SIZE * 0.9, h * CELL_SIZE * 0.9)
     geo.rotateX(-Math.PI / 2)
     geo.rotateY((rotation * Math.PI) / 180)
-    const mat  = new THREE.MeshLambertMaterial({ color: 0x8b6914, transparent: true, opacity: 0.85 })
+    const mat  = new THREE.MeshBasicMaterial({ color: 0x8b6914, transparent: true, opacity: 0.85, depthTest: false })
     const mesh = new THREE.Mesh(geo, mat)
     mesh.position.set(x * CELL_SIZE, 0.02, y * CELL_SIZE)
-    mesh.renderOrder = 3
+    mesh.renderOrder = 6
     mesh.userData['placementId'] = placementId
     this.objectsGroup.add(mesh)
   }

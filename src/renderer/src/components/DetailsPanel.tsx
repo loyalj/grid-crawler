@@ -24,16 +24,14 @@ import {
 import { PortraitCropModal } from './PortraitCropModal'
 import classes from './DetailsPanel.module.css'
 
-// ── Option lists ──────────────────────────────────────────────────────────────
+// ── Floor options helper ───────────────────────────────────────────────────────
 
-const FLOOR_OPTIONS: { value: FloorMaterial; label: string }[] = [
-  { value: 'stone', label: 'Stone' },
-  { value: 'wood',  label: 'Wood'  },
-  { value: 'dirt',  label: 'Dirt'  },
-  { value: 'water', label: 'Water' },
-  { value: 'lava',  label: 'Lava'  },
-  { value: 'pit',   label: 'Pit'   },
-]
+function useFloorOptions(): { value: string; label: string }[] {
+  const appFloorCatalog = useMapStore((s) => s.appFloorCatalog)
+  const project         = useMapStore((s) => s.project)
+  const combined = [...appFloorCatalog, ...(project?.projectFloorTextures ?? [])]
+  return combined.map((d) => ({ value: d.id, label: d.name }))
+}
 
 const WALL_OPTIONS: { value: WallMaterial; label: string }[] = [
   { value: 'stone', label: 'Stone' },
@@ -170,6 +168,7 @@ function RoomDetails({
     )
   }
 
+  const floorOptions = useFloorOptions()
   const s = room.settings
   const ls = levelSettings
 
@@ -213,7 +212,7 @@ function RoomDetails({
         <ControlRow label="Floor">
           <Select
             size="xs"
-            data={withInherit(FLOOR_OPTIONS, ls.floorMaterial)}
+            data={withInherit(floorOptions, ls.floorMaterial)}
             value={s.floorMaterial ?? ''}
             onChange={onFloor}
             allowDeselect={false}
@@ -360,6 +359,7 @@ function HallwayDetails({
     .filter((r) => r.id !== hallway.roomAId)
     .map((r) => ({ value: r.id, label: r.name || 'Unnamed Room' }))
 
+  const floorOptions = useFloorOptions()
   const s  = hallway.settings
   const ls = levelSettings
 
@@ -419,7 +419,7 @@ function HallwayDetails({
         <ControlRow label="Floor">
           <Select
             size="xs"
-            data={withInherit(FLOOR_OPTIONS, ls.floorMaterial)}
+            data={withInherit(floorOptions, ls.floorMaterial)}
             value={s.floorMaterial ?? ''}
             onChange={onFloor}
             allowDeselect={false}
@@ -807,16 +807,10 @@ function PlayerDetails({ player }: { player: Player }) {
         {/* Placement */}
         <Text className={classes.sectionLabel}>Placement</Text>
         <Text size="xs" c="dimmed">{placementLabel}</Text>
-        <Group gap="xs">
-          <Button size="xs" variant="default" onClick={handlePlace}>
-            {player.placement ? 'Move on map' : 'Place on map'}
-          </Button>
-          {player.placement && (
-            <Button size="xs" variant="subtle" color="red" onClick={handleUnplace}>
-              Unplace
-            </Button>
-          )}
-        </Group>
+        {player.placement
+          ? <Button size="xs" variant="subtle" color="red" onClick={handleUnplace}>Unplace</Button>
+          : <Button size="xs" variant="default" onClick={handlePlace}>Place on map</Button>
+        }
 
         <Divider />
 

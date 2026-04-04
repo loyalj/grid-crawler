@@ -31,8 +31,11 @@ export type ContextMenuAction =
   | { kind: 'copy_object';     placementId: string }
   | { kind: 'cut_object';      placementId: string }
   | { kind: 'delete_object';   placementId: string }
+  | { kind: 'unplace_player';  playerId: string }
+  | { kind: 'cut_player';      playerId: string }
   | { kind: 'delete_player';   playerId: string }
-  | { kind: 'paste';           col: number; row: number; fx: number; fy: number }
+  | { kind: 'paste_player';    playerId: string; fx: number; fy: number; label: string }
+  | { kind: 'paste';           col: number; row: number; fx: number; fy: number; label: string }
 
 export interface ContextMenuPayload {
   screenX: number
@@ -109,6 +112,23 @@ export class InputManager {
 
   private getStore() {
     return useMapStore.getState()
+  }
+
+  private buildPasteItem(col: number, row: number, fx: number, fy: number): ContextMenuAction | null {
+    const { clipboard, appCatalog, project } = this.getStore()
+    if (!clipboard) return null
+    if (clipboard.kind === 'player') {
+      const player = project?.players.find((p) => p.id === clipboard.playerId)
+      const name = player?.name.trim() || 'Player'
+      return { kind: 'paste_player', playerId: clipboard.playerId, fx, fy, label: `Paste ${name}` }
+    }
+    if (clipboard.kind === 'room') {
+      return { kind: 'paste', col, row, fx, fy, label: 'Paste Room' }
+    }
+    // placement
+    const allDefs = [...appCatalog, ...(project?.projectCatalog ?? [])]
+    const def = allDefs.find((d) => d.id === clipboard.placement.definitionId)
+    return { kind: 'paste', col, row, fx, fy, label: `Paste ${def?.name ?? 'Object'}` }
   }
 
   private getActiveLevel(): Level | null {
@@ -690,22 +710,37 @@ export class InputManager {
     const level = this.getActiveLevel()
     if (!level) return
 
-    // Placements take top priority (they render above the floor)
+    // Player tokens take top priority
+    const hitPlayer = this.renderer.hitPlayer(c.fx, c.fy)
+    if (hitPlayer) {
+      store.setSelectedPlayer(hitPlayer.id)
+      this.renderer.setPlayerSelection(hitPlayer)
+      store.setClipboard({ kind: 'player', playerId: hitPlayer.id })
+      const playerItems: ContextMenuAction[] = []
+      if (hitPlayer.placement) {
+        playerItems.push({ kind: 'unplace_player', playerId: hitPlayer.id })
+      }
+      playerItems.push({ kind: 'cut_player', playerId: hitPlayer.id })
+      playerItems.push({ kind: 'delete_player', playerId: hitPlayer.id })
+      this.onContextMenu({ screenX: e.clientX, screenY: e.clientY, items: playerItems })
+      return
+    }
+
+    // Placements take priority over rooms/hallways
     const placement = this.hitPlacement(c.fx, c.fy, level)
     if (placement) {
       if (placement.id !== store.selectedId) {
         store.setSelected(placement.id)
         this.renderer.setSelection(placement.id)
       }
-      this.onContextMenu({
-        screenX: e.clientX,
-        screenY: e.clientY,
-        items: [
-          { kind: 'copy_object',   placementId: placement.id },
-          { kind: 'cut_object',    placementId: placement.id },
-          { kind: 'delete_object', placementId: placement.id },
-        ]
-      })
+      const pasteItem = this.buildPasteItem(c.col, c.row, c.fx, c.fy)
+      const items: ContextMenuAction[] = [
+        ...(pasteItem ? [pasteItem] : []),
+        { kind: 'copy_object',   placementId: placement.id },
+        { kind: 'cut_object',    placementId: placement.id },
+        { kind: 'delete_object', placementId: placement.id },
+      ]
+      this.onContextMenu({ screenX: e.clientX, screenY: e.clientY, items })
       return
     }
 
@@ -716,15 +751,14 @@ export class InputManager {
         store.setSelected(room.id)
         this.renderer.setSelection(room.id)
       }
-      this.onContextMenu({
-        screenX: e.clientX,
-        screenY: e.clientY,
-        items: [
-          { kind: 'copy_room',   roomId: room.id },
-          { kind: 'cut_room',    roomId: room.id },
-          { kind: 'delete_room', roomId: room.id },
-        ]
-      })
+      const pasteItem = this.buildPasteItem(c.col, c.row, c.fx, c.fy)
+      const items: ContextMenuAction[] = [
+        ...(pasteItem ? [pasteItem] : []),
+        { kind: 'copy_room',   roomId: room.id },
+        { kind: 'cut_room',    roomId: room.id },
+        { kind: 'delete_room', roomId: room.id },
+      ]
+      this.onContextMenu({ screenX: e.clientX, screenY: e.clientY, items })
       return
     }
 
@@ -752,13 +786,8 @@ export class InputManager {
     if (!hallway) hallway = this.hitHallway(c.col, c.row, level)
     if (!hallway) {
       // Empty grid — offer paste if clipboard has content
-      if (store.clipboard) {
-        this.onContextMenu({
-          screenX: e.clientX,
-          screenY: e.clientY,
-          items: [{ kind: 'paste', col: c.col, row: c.row, fx: c.fx, fy: c.fy }]
-        })
-      }
+      const pasteItem = this.buildPasteItem(c.col, c.row, c.fx, c.fy)
+      if (pasteItem) this.onContextMenu({ screenX: e.clientX, screenY: e.clientY, items: [pasteItem] })
       return
     }
 
@@ -768,14 +797,15 @@ export class InputManager {
       this.renderer.setSelection(hallway.id)
     }
 
+    const pasteItem = this.buildPasteItem(c.col, c.row, c.fx, c.fy)
     const wpIndex = hallway.waypoints.findIndex((wp) => wp.x === c.col && wp.y === c.row)
-    const items: ContextMenuAction[] = []
-    if (wpIndex !== -1) {
-      items.push({ kind: 'remove_waypoint', hallwayId: hallway.id, waypointIndex: wpIndex })
-    } else {
-      items.push({ kind: 'add_waypoint', hallwayId: hallway.id, col: c.col, row: c.row })
-    }
-    items.push({ kind: 'delete_hallway', hallwayId: hallway.id })
+    const items: ContextMenuAction[] = [
+      ...(pasteItem ? [pasteItem] : []),
+      wpIndex !== -1
+        ? { kind: 'remove_waypoint', hallwayId: hallway.id, waypointIndex: wpIndex }
+        : { kind: 'add_waypoint',    hallwayId: hallway.id, col: c.col, row: c.row },
+      { kind: 'delete_hallway', hallwayId: hallway.id },
+    ]
 
     this.onContextMenu({ screenX: e.clientX, screenY: e.clientY, items })
   }

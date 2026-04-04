@@ -4,7 +4,7 @@ import { InputManager, ContextMenuPayload, ContextMenuAction } from '../engine/I
 import { useMapStore } from '../store/mapStore'
 import { useAppSettings } from '../store/appSettingsStore'
 import { ContextMenu } from './ContextMenu'
-import { UpdateHallwayWaypointsCommand, RemoveHallwayCommand, RemoveRoomCommand, RemoveObjectCommand } from '../engine/commands'
+import { UpdateHallwayWaypointsCommand, RemoveHallwayCommand, RemoveRoomCommand, RemoveObjectCommand, RemovePlayerCommand, UpdatePlayerPlacementCommand } from '../engine/commands'
 
 export interface MapCanvasHandle {
   undo:  () => void
@@ -24,11 +24,12 @@ export const MapCanvas = forwardRef<MapCanvasHandle>(function MapCanvas(_, ref) 
   const activeLevelId = useMapStore((s) => s.activeLevelId)
   const viewMode      = useMapStore((s) => s.viewMode)
   const selectedId    = useMapStore((s) => s.selectedId)
-  const selectedPlayerId = useMapStore((s) => s.selectedPlayerId)
-  const activeTool         = useMapStore((s) => s.activeTool)
-  const appCatalog         = useMapStore((s) => s.appCatalog)
-  const armedDefinitionId  = useMapStore((s) => s.armedDefinitionId)
-  const armedPlayerId      = useMapStore((s) => s.armedPlayerId)
+  const selectedPlayerId  = useMapStore((s) => s.selectedPlayerId)
+  const activeTool        = useMapStore((s) => s.activeTool)
+  const appCatalog        = useMapStore((s) => s.appCatalog)
+  const appFloorCatalog   = useMapStore((s) => s.appFloorCatalog)
+  const armedDefinitionId = useMapStore((s) => s.armedDefinitionId)
+  const armedPlayerId     = useMapStore((s) => s.armedPlayerId)
 
   const gridVisible      = useAppSettings((s) => s.gridVisible)
   const gridColor        = useAppSettings((s) => s.gridColor)
@@ -53,7 +54,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle>(function MapCanvas(_, ref) 
     const input    = new InputManager(canvasRef.current, renderer, setContextMenu)
     rendererRef.current = renderer
     inputRef.current    = input
-    renderer.setViewMode('topdown')
+    renderer.setViewMode('layout')
     renderer.setGridSettings(gridVisible, gridColor, gridOpacity)
     renderer.setBackground(canvasBackground)
     return () => {
@@ -91,14 +92,10 @@ export const MapCanvas = forwardRef<MapCanvasHandle>(function MapCanvas(_, ref) 
     return () => obs.disconnect()
   }, [])
 
-  // View mode changes
+  // View mode changes → renderer re-renders with current mode
   useEffect(() => {
-    rendererRef.current?.setViewMode(
-      viewMode,
-      activeLevel?.settings.gridWidth  ?? 48,
-      activeLevel?.settings.gridHeight ?? 48
-    )
-  }, [viewMode]) // eslint-disable-line react-hooks/exhaustive-deps
+    rendererRef.current?.setViewMode(viewMode)
+  }, [viewMode])
 
   // Tool changes from the toolbar → cancel any in-progress interaction
   useEffect(() => {
@@ -123,6 +120,13 @@ export const MapCanvas = forwardRef<MapCanvasHandle>(function MapCanvas(_, ref) 
     const merged = [...appCatalog, ...(project?.projectCatalog ?? [])]
     rendererRef.current?.setCatalog(merged)
   }, [appCatalog])
+
+  // Floor catalog changes → push combined app + project textures to renderer
+  useEffect(() => {
+    const { project } = useMapStore.getState()
+    const merged = [...appFloorCatalog, ...(project?.projectFloorTextures ?? [])]
+    rendererRef.current?.setFloorCatalog(merged)
+  }, [appFloorCatalog])
 
   // Level data changes → full re-render
   useEffect(() => {
@@ -247,6 +251,35 @@ export const MapCanvas = forwardRef<MapCanvasHandle>(function MapCanvas(_, ref) 
         if (!placement) return
         store.dispatch(new RemoveObjectCommand(activeLevelId, placement))
         store.setSelected(null)
+        break
+      }
+      case 'unplace_player': {
+        store.dispatch(new UpdatePlayerPlacementCommand(action.playerId, null))
+        store.setSelectedPlayer(action.playerId)
+        rendererRef.current?.setSelection(null)
+        break
+      }
+      case 'cut_player': {
+        // Unplace the player (remove from map) but keep them in the players list
+        store.dispatch(new UpdatePlayerPlacementCommand(action.playerId, null))
+        store.setClipboard({ kind: 'player', playerId: action.playerId })
+        store.setSelectedPlayer(action.playerId)
+        rendererRef.current?.setSelection(null)
+        break
+      }
+      case 'paste_player': {
+        const { activeLevelId } = store
+        if (!activeLevelId) break
+        store.dispatch(new UpdatePlayerPlacementCommand(action.playerId, { levelId: activeLevelId, x: action.fx, y: action.fy }))
+        store.setClipboard(null)
+        store.setSelectedPlayer(action.playerId)
+        rendererRef.current?.setSelection(null)
+        break
+      }
+      case 'delete_player': {
+        store.dispatch(new RemovePlayerCommand(action.playerId))
+        store.setSelectedPlayer(null)
+        rendererRef.current?.setSelection(null)
         break
       }
       case 'paste':

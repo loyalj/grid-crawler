@@ -18,7 +18,8 @@ export default function App() {
   const setProject     = useMapStore((s) => s.setProject)
   const markSaved      = useMapStore((s) => s.markSaved)
   const setViewMode    = useMapStore((s) => s.setViewMode)
-  const setAppCatalog  = useMapStore((s) => s.setAppCatalog)
+  const setAppCatalog      = useMapStore((s) => s.setAppCatalog)
+  const setAppFloorCatalog = useMapStore((s) => s.setAppFloorCatalog)
   const navSection     = useMapStore((s) => s.navSection)
 
   // Right panel resize
@@ -61,12 +62,15 @@ export default function App() {
   // Set initial window title (no project open yet)
   useEffect(() => { updateTitle(null, false) }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Load app catalog once on mount
+  // Load app catalogs once on mount
   useEffect(() => {
     window.electronAPI.loadAppCatalog().then((raw) => {
       setAppCatalog(raw as ObjectDefinition[])
     }).catch((e) => console.warn('[App] failed to load app catalog:', e))
-  }, [setAppCatalog])
+    window.electronAPI.loadAppFloorCatalog().then((raw) => {
+      setAppFloorCatalog(raw as import('./types/map').FloorTextureDefinition[])
+    }).catch((e) => console.warn('[App] failed to load floor catalog:', e))
+  }, [setAppCatalog, setAppFloorCatalog])
 
   const [showAbout, setShowAbout] = useState(false)
   const [showNew, setShowNew]     = useState(false)
@@ -228,7 +232,8 @@ export default function App() {
         case 'app:about':        setShowAbout(true);            break
         case 'app:beforeClose':  handleBeforeClose();           break
         case 'file:exportPdf':                             break
-        case 'view:topdown':   setViewMode('topdown');     break
+        case 'view:layout':    setViewMode('layout');      break
+        case 'view:textured':  setViewMode('textured');    break
         case 'view:isometric': setViewMode('isometric');   break
         case 'view:fps':       setViewMode('fps');         break
       }

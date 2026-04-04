@@ -28,6 +28,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   loadAppCatalog: (): Promise<unknown[]> =>
     ipcRenderer.invoke('catalog:loadApp'),
 
+  // Floor texture catalog
+  loadAppFloorCatalog: (): Promise<unknown[]> =>
+    ipcRenderer.invoke('floorCatalog:loadApp'),
+
   // Menu actions sent from the main process
   onMenuAction: (callback: (action: string) => void) => {
     const wrapper = (_event: IpcRendererEvent, action: string) => callback(action)
