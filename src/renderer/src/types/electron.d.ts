@@ -17,6 +17,7 @@ interface Window {
     setTitle: (title: string) => void
     confirmClose: () => void
     setSelectionKind: (kind: 'room' | 'hallway' | 'placement' | null) => void
+    setViewMode:      (mode: string) => void
     onMenuAction:     (callback: (action: string) => void) => void
     offMenuAction:    (callback: (action: string) => void) => void
     checkForUpdates:  () => void

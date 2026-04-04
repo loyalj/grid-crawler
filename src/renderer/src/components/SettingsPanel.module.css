@@ -26,3 +26,64 @@
   height: 100%;
   overflow-y: auto;
 }
+
+/* ── Keybindings ─────────────────────────────────────────────────────────── */
+
+.bindingRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--mantine-color-default-border);
+}
+
+.bindingLabel {
+  flex: 0 0 160px;
+}
+
+.bindingChips {
+  flex: 1;
+  flex-wrap: wrap;
+}
+
+.keyChip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  background: var(--mantine-color-default);
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-sm);
+  color: var(--mantine-color-text);
+  font-size: var(--mantine-font-size-xs);
+  font-family: monospace;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.keyChip:hover {
+  background: var(--mantine-color-default-hover);
+  border-color: var(--mantine-color-red-6);
+  color: var(--mantine-color-red-4);
+}
+
+.keyChipAdd {
+  opacity: 0.5;
+  font-family: inherit;
+}
+
+.keyChipAdd:hover {
+  opacity: 1;
+  border-color: var(--mantine-color-teal-6);
+  color: var(--mantine-color-teal-4);
+}
+
+.keyChipCapturing {
+  border-color: var(--mantine-color-teal-6);
+  color: var(--mantine-color-teal-4);
+  animation: pulse 1s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.5; }
+}

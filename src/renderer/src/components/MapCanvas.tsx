@@ -94,7 +94,31 @@ export const MapCanvas = forwardRef<MapCanvasHandle>(function MapCanvas(_, ref) 
 
   // View mode changes → renderer re-renders with current mode
   useEffect(() => {
-    rendererRef.current?.setViewMode(viewMode)
+    if (viewMode === 'fps') {
+      // Compute spawn: selected player's placement, or center of first room, or level center
+      const { project, activeLevelId, selectedPlayerId } = useMapStore.getState()
+      const level = project && activeLevelId
+        ? (project.overworld.id === activeLevelId ? project.overworld : project.dungeonLevels.find((l) => l.id === activeLevelId))
+        : null
+      let spawnX: number | undefined
+      let spawnZ: number | undefined
+      if (selectedPlayerId && project) {
+        const player = project.players.find((p) => p.id === selectedPlayerId)
+        if (player?.placement && player.placement.levelId === activeLevelId) {
+          spawnX = player.placement.x
+          spawnZ = player.placement.y
+        }
+      }
+      if (spawnX === undefined && level?.rooms.length) {
+        const r = level.rooms[0]
+        spawnX = (r.x + r.width  / 2)
+        spawnZ = (r.y + r.height / 2)
+      }
+      rendererRef.current?.setViewMode(viewMode, spawnX, spawnZ)
+    } else {
+      rendererRef.current?.setViewMode(viewMode)
+    }
+    window.electronAPI.setViewMode(viewMode)
   }, [viewMode])
 
   // Tool changes from the toolbar → cancel any in-progress interaction
@@ -147,9 +171,15 @@ export const MapCanvas = forwardRef<MapCanvasHandle>(function MapCanvas(_, ref) 
 
   // Players list changes → update renderer and re-render level (players are part of the scene)
   useEffect(() => {
+    const { selectedPlayerId } = useMapStore.getState()
     const players = project?.players ?? []
     rendererRef.current?.setPlayers(players)
     if (activeLevel) rendererRef.current?.loadLevel(activeLevel)
+    // Re-apply player selection after full reload
+    const player = selectedPlayerId
+      ? (players.find((p) => p.id === selectedPlayerId) ?? null)
+      : null
+    rendererRef.current?.setPlayerSelection(player)
   }, [project?.players]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Player selection → sync renderer highlight

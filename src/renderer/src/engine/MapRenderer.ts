@@ -45,9 +45,14 @@ export class MapRenderer {
   private renderer:      THREE.WebGLRenderer
   private scene:         THREE.Scene
   private camera:        THREE.Camera
-  private orbitControls: OrbitControls | null = null
-  private fpsControls:   PointerLockControls | null = null
-  private animationId:   number | null = null
+  private orbitControls:  OrbitControls | null = null
+  private fpsControls:    PointerLockControls | null = null
+  private fpsKeys:        Set<string> = new Set()
+  private fpsWalkable:    Set<string> = new Set()  // "col,row" cells passable in FPS
+  private _onFpsKeydown:  ((e: KeyboardEvent) => void) | null = null
+  private _onFpsKeyup:    ((e: KeyboardEvent) => void) | null = null
+  private _onFpsClick:    (() => void) | null = null
+  private animationId:    number | null = null
   private viewMode:      ViewMode = 'topdown'
 
   // Render groups
@@ -218,22 +223,28 @@ export class MapRenderer {
     return cam
   }
 
-  private createFPSCamera(): THREE.PerspectiveCamera {
+  private createFPSCamera(spawnX = 4, spawnZ = 4): THREE.PerspectiveCamera {
     const cam = new THREE.PerspectiveCamera(
       75, this.canvas.clientWidth / Math.max(this.canvas.clientHeight, 1), 0.1, 500
     )
-    cam.position.set(4, 1, 4)
+    cam.position.set(spawnX, 1.7, spawnZ)
     return cam
   }
 
   // ── View mode ─────────────────────────────────────────────────────────────────
 
-  setViewMode(mode: ViewMode): void {
+  setViewMode(mode: ViewMode, spawnX?: number, spawnZ?: number): void {
     this.viewMode = mode
+
+    // Tear down previous controls and WASD listeners
     this.orbitControls?.dispose()
     this.fpsControls?.dispose()
     this.orbitControls = null
     this.fpsControls   = null
+    if (this._onFpsKeydown) { window.removeEventListener('keydown', this._onFpsKeydown); this._onFpsKeydown = null }
+    if (this._onFpsKeyup)   { window.removeEventListener('keyup',   this._onFpsKeyup);   this._onFpsKeyup   = null }
+    if (this._onFpsClick)   { this.canvas.removeEventListener('click', this._onFpsClick); this._onFpsClick   = null }
+    this.fpsKeys.clear()
 
     const gridWidth  = this.currentLevel?.settings.gridWidth  ?? 48
     const gridHeight = this.currentLevel?.settings.gridHeight ?? 48
@@ -242,8 +253,7 @@ export class MapRenderer {
 
     switch (mode) {
       case 'layout':
-      case 'textured':
-      case 'topdown': {
+      case 'textured': {
         this.camera = this.createTopDownCamera(cx, cz)
         const oc = new OrbitControls(this.camera, this.canvas)
         oc.enableRotate = false
@@ -264,14 +274,71 @@ export class MapRenderer {
         break
       }
       case 'fps': {
-        this.camera      = this.createFPSCamera()
+        const sx = spawnX ?? cx
+        const sz = spawnZ ?? cz
+        this.camera      = this.createFPSCamera(sx, sz)
         this.fpsControls = new PointerLockControls(this.camera, this.canvas)
-        this.canvas.addEventListener('click', () => this.fpsControls?.lock(), { once: true })
+        this._onFpsClick = () => { if (!this.fpsControls?.isLocked) this.fpsControls?.lock() }
+        this.canvas.addEventListener('click', this._onFpsClick)
+
+        // WASD key tracking
+        this._onFpsKeydown = (e: KeyboardEvent) => {
+          if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+          this.fpsKeys.add(e.code)
+        }
+        this._onFpsKeyup = (e: KeyboardEvent) => { this.fpsKeys.delete(e.code) }
+        window.addEventListener('keydown', this._onFpsKeydown)
+        window.addEventListener('keyup',   this._onFpsKeyup)
         break
       }
     }
 
     if (this.currentLevel) this.loadLevel(this.currentLevel)
+  }
+
+  // ── Fit view ──────────────────────────────────────────────────────────────────
+
+  fitView(): void {
+    if (this.viewMode === 'fps' || !this.orbitControls) return
+
+    const level = this.currentLevel
+    const gridW = level?.settings.gridWidth  ?? 48
+    const gridH = level?.settings.gridHeight ?? 48
+
+    // Compute bounding box of all rooms; fall back to full grid
+    let minX = 0, minZ = 0, maxX = gridW, maxZ = gridH
+    if (level && level.rooms.length > 0) {
+      minX = Infinity; minZ = Infinity; maxX = -Infinity; maxZ = -Infinity
+      for (const r of level.rooms) {
+        minX = Math.min(minX, r.x)
+        minZ = Math.min(minZ, r.y)
+        maxX = Math.max(maxX, r.x + r.width)
+        maxZ = Math.max(maxZ, r.y + r.height)
+      }
+    }
+
+    const cx = (minX + maxX) / 2
+    const cz = (minZ + maxZ) / 2
+    const boundsW = maxX - minX
+    const boundsH = maxZ - minZ
+
+    // Reposition camera keeping its angular offset from the target
+    const offset = new THREE.Vector3().subVectors(this.camera.position, this.orbitControls.target)
+    this.orbitControls.target.set(cx, 0, cz)
+    this.camera.position.copy(this.orbitControls.target).add(offset)
+
+    // Fit zoom for orthographic cameras
+    if ((this.camera as THREE.OrthographicCamera).isOrthographicCamera) {
+      const cam    = this.camera as THREE.OrthographicCamera
+      const aspect = this.canvas.clientWidth / Math.max(this.canvas.clientHeight, 1)
+      const PADDING = 1.15
+      const zoomH = (cam.top - cam.bottom) / 2 / (boundsH / 2 * PADDING)
+      const zoomW = (cam.right - cam.left) / 2 / aspect / (boundsW / 2 * PADDING)
+      cam.zoom = Math.min(zoomH, zoomW)
+      cam.updateProjectionMatrix()
+    }
+
+    this.orbitControls.update()
   }
 
   // ── Level rendering ───────────────────────────────────────────────────────────
@@ -312,7 +379,11 @@ export class MapRenderer {
     this.disposeGroup(this.labelsGroup)
     this.disposeGroup(this.playersGroup)
     this.playerMeshMap.clear()
-    this.selectionGroup.clear()  // selection is invalidated on full reload
+    // Preserve the player selection outline across reloads
+    const playerSel = this.selectionGroup.getObjectByName('player_sel')
+    if (playerSel) this.selectionGroup.remove(playerSel)
+    this.selectionGroup.clear()
+    if (playerSel) this.selectionGroup.add(playerSel)
 
     const { gridWidth, gridHeight, wallMaterial } = level.settings
     const wallColor = WALL_COLORS[wallMaterial]
@@ -373,7 +444,7 @@ export class MapRenderer {
         geo.setAttribute('color',    new THREE.Float32BufferAttribute(colors,    3))
         geo.setIndex(indices)
         geo.computeVertexNormals()
-        const hallwayTex = this.viewMode === 'textured'
+        const hallwayTex = this.viewMode !== 'layout'
           ? this.floorTextureCache.get(materialId)
           : undefined
         let hallwayMat: THREE.Material
@@ -394,6 +465,9 @@ export class MapRenderer {
         this.mapGroup.add(new THREE.Mesh(geo, hallwayMat))
       }
     }
+
+    // Persist walkable set for FPS collision
+    this.fpsWalkable = new Set(floorSet)
 
     // ── Walls (edge-based) ──
     const wallMatNS = new THREE.MeshLambertMaterial({ color: wallColor })
@@ -509,7 +583,7 @@ export class MapRenderer {
   private renderRoomFloor(room: Room, defaults: SurfaceSettings): void {
     const materialId = room.settings.floorMaterial ?? defaults.floorMaterial
 
-    if (this.viewMode === 'textured') {
+    if (this.viewMode !== 'layout') {
       this.renderRoomFloorTextured(room, materialId)
     } else {
       this.renderRoomFloorLayout(room, materialId)
@@ -735,11 +809,13 @@ export class MapRenderer {
     }
   }
 
-  /** Move a player token during drag (no dispatch). Moves the token's sub-group. */
+  /** Move a player token during drag (no dispatch). Moves the token's sub-group and selection outline. */
   movePlayerPreview(playerId: string, fx: number, fy: number): void {
     const tokenGroup = this.playerMeshMap.get(playerId)
     if (!tokenGroup) return
     tokenGroup.position.set(fx * CELL_SIZE, 0, fy * CELL_SIZE)
+    const outline = this.selectionGroup.getObjectByName('player_sel')
+    if (outline) outline.position.set(fx * CELL_SIZE, 0.03, fy * CELL_SIZE)
   }
 
   /** AABB hit-test: returns the player token hit at float (fx, fy), or null. */
@@ -791,19 +867,33 @@ export class MapRenderer {
     const existing = this.selectionGroup.getObjectByName('player_sel')
     if (existing) {
       this.selectionGroup.remove(existing)
-      const m = existing as THREE.Mesh
-      m.geometry?.dispose()
+      ;(existing as THREE.Mesh).geometry?.dispose()
     }
     if (!player?.placement) return
     const { x, y } = player.placement
-    const SIDE = 0.88
-    const ringGeo = new THREE.PlaneGeometry(SIDE + 0.16, SIDE + 0.16)
-    ringGeo.rotateX(-Math.PI / 2)
-    const mat  = new THREE.MeshBasicMaterial({ color: SELECTION_COLOR, transparent: true, opacity: 0.35, depthWrite: false })
-    const mesh = new THREE.Mesh(ringGeo, mat)
+    // Thick square ring matching the object token ring style
+    const outer = 0.54   // half-extent of outer square
+    const inner = 0.44   // half-extent of inner square (ring thickness = 0.10)
+    const shape = new THREE.Shape()
+    shape.moveTo(-outer, -outer)
+    shape.lineTo( outer, -outer)
+    shape.lineTo( outer,  outer)
+    shape.lineTo(-outer,  outer)
+    shape.lineTo(-outer, -outer)
+    const hole = new THREE.Path()
+    hole.moveTo(-inner, -inner)
+    hole.lineTo( inner, -inner)
+    hole.lineTo( inner,  inner)
+    hole.lineTo(-inner,  inner)
+    hole.lineTo(-inner, -inner)
+    shape.holes.push(hole)
+    const geo  = new THREE.ShapeGeometry(shape)
+    geo.rotateX(-Math.PI / 2)
+    const mat  = new THREE.MeshBasicMaterial({ color: SELECTION_COLOR, transparent: true, opacity: 0.9, depthWrite: false, depthTest: false })
+    const mesh = new THREE.Mesh(geo, mat)
     mesh.name = 'player_sel'
-    mesh.position.set(x * CELL_SIZE, 0.024, y * CELL_SIZE)
-    mesh.renderOrder = 9
+    mesh.position.set(x * CELL_SIZE, 0.03, y * CELL_SIZE)
+    mesh.renderOrder = 12
     this.selectionGroup.add(mesh)
   }
 
@@ -921,7 +1011,11 @@ export class MapRenderer {
   }
 
   setSelection(id: string | null): void {
+    // Preserve the player selection outline — remove before disposeGroup so its geometry is not destroyed
+    const playerSel = this.selectionGroup.getObjectByName('player_sel')
+    if (playerSel) this.selectionGroup.remove(playerSel)
     this.disposeGroup(this.selectionGroup)
+    if (playerSel) this.selectionGroup.add(playerSel)
     if (!id || !this.currentLevel) return
 
     // ── Room selection ──
@@ -1193,10 +1287,63 @@ export class MapRenderer {
 
   // ── Render loop ───────────────────────────────────────────────────────────────
 
+  private fpsIsWalkable(wx: number, wz: number): boolean {
+    const R = 0.25  // body radius in world units (= grid cells since CELL_SIZE=1)
+    const probes = [
+      { x: wx + R, z: wz     },
+      { x: wx - R, z: wz     },
+      { x: wx,     z: wz + R },
+      { x: wx,     z: wz - R },
+    ]
+    for (const p of probes) {
+      const col = Math.floor(p.x / CELL_SIZE)
+      const row = Math.floor(p.z / CELL_SIZE)
+      if (!this.fpsWalkable.has(`${col},${row}`)) return false
+    }
+    return true
+  }
+
   private startLoop(): void {
+    const FPS_SPEED = 6  // grid units per second
+    let lastTime = performance.now()
     const animate = (): void => {
       this.animationId = requestAnimationFrame(animate)
       this.orbitControls?.update()
+
+      if (this.fpsControls?.isLocked) {
+        const now   = performance.now()
+        const delta = (now - lastTime) / 1000
+        lastTime    = now
+        const dist  = FPS_SPEED * CELL_SIZE * delta
+
+        const prevX = this.camera.position.x
+        const prevZ = this.camera.position.z
+
+        const moveX = this.fpsKeys.has('KeyD') || this.fpsKeys.has('ArrowRight') ? dist
+                    : this.fpsKeys.has('KeyA') || this.fpsKeys.has('ArrowLeft')  ? -dist : 0
+        const moveZ = this.fpsKeys.has('KeyW') || this.fpsKeys.has('ArrowUp')    ? dist
+                    : this.fpsKeys.has('KeyS') || this.fpsKeys.has('ArrowDown')  ? -dist : 0
+
+        // Try X axis
+        if (moveZ !== 0) this.fpsControls.moveForward(moveZ)
+        if (!this.fpsIsWalkable(this.camera.position.x, this.camera.position.z)) {
+          this.camera.position.x = prevX
+          this.camera.position.z = prevZ
+        }
+
+        const afterZX = this.camera.position.x
+        const afterZZ = this.camera.position.z
+
+        // Try strafe axis independently
+        if (moveX !== 0) this.fpsControls.moveRight(moveX)
+        if (!this.fpsIsWalkable(this.camera.position.x, this.camera.position.z)) {
+          this.camera.position.x = afterZX
+          this.camera.position.z = afterZZ
+        }
+      } else {
+        lastTime = performance.now()
+      }
+
       this.renderer.render(this.scene, this.camera)
     }
     animate()
@@ -1256,6 +1403,9 @@ export class MapRenderer {
     if (this.animationId !== null) cancelAnimationFrame(this.animationId)
     this.orbitControls?.dispose()
     this.fpsControls?.dispose()
+    if (this._onFpsKeydown) window.removeEventListener('keydown', this._onFpsKeydown)
+    if (this._onFpsKeyup)   window.removeEventListener('keyup',   this._onFpsKeyup)
+    if (this._onFpsClick)   this.canvas.removeEventListener('click', this._onFpsClick)
     this.disposeGroup(this.mapGroup)
     this.disposeGroup(this.wallGroup)
     this.disposeGroup(this.gridGroup)

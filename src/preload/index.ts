@@ -43,6 +43,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   confirmClose: () => ipcRenderer.send('app:confirmClose'),
   setSelectionKind: (kind: 'room' | 'hallway' | 'placement' | null) =>
     ipcRenderer.send('menu:selectionKind', kind),
+  setViewMode: (mode: string) =>
+    ipcRenderer.send('menu:viewMode', mode),
 
   offMenuAction: (callback: (action: string) => void) => {
     const wrapper = menuWrappers.get(callback)

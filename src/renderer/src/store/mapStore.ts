@@ -134,7 +134,7 @@ export const useMapStore = create<MapStore>((set, get) => ({
   appFloorCatalog: [],
   setAppFloorCatalog: (appFloorCatalog) => set({ appFloorCatalog }),
 
-  viewMode:          'topdown',
+  viewMode:          'layout' as ViewMode,
   activeTool:        'select',
   navSection:        'map' as NavSection,
   selectedId:        null,

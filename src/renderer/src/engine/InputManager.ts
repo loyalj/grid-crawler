@@ -1,6 +1,8 @@
 import { Room, Hallway, Level, Waypoint, ObjectPlacement, Player } from '../types/map'
 import { computePath, expandPath, resolveExitPoints, nearestWallExit } from './hallwayPath'
 import { useMapStore, ClipboardPayload } from '../store/mapStore'
+import { useAppSettings } from '../store/appSettingsStore'
+import { matchesBinding } from '../store/keyBindings'
 import { MapRenderer, ResizeHandle } from './MapRenderer'
 import {
   AddRoomCommand,
@@ -810,6 +812,11 @@ export class InputManager {
     this.onContextMenu({ screenX: e.clientX, screenY: e.clientY, items })
   }
 
+  private action(e: KeyboardEvent, id: import('../store/keyBindings').ActionId): boolean {
+    const bindings = useAppSettings.getState().keyBindings[id]
+    return bindings?.some((b) => matchesBinding(e, b)) ?? false
+  }
+
   private handleKeydown(e: KeyboardEvent): void {
     // Don't intercept when focus is in an input/textarea
     const target = e.target as HTMLElement
@@ -818,78 +825,70 @@ export class InputManager {
     const store = this.getStore()
     const ctrl  = e.ctrlKey || e.metaKey
 
-    if (ctrl && e.key === 'z' && !e.shiftKey) {
-      e.preventDefault(); this.triggerUndo(); return
-    }
-
-    if (ctrl && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
-      e.preventDefault(); this.triggerRedo(); return
-    }
-
+    // copy / cut / paste — not configurable, handled separately
     if (ctrl && e.key === 'c') { e.preventDefault(); this.copy();  return }
     if (ctrl && e.key === 'x') { e.preventDefault(); this.cut();   return }
     if (ctrl && e.key === 'v') { e.preventDefault(); this.paste(); return }
 
+    if (this.action(e, 'undo'))  { e.preventDefault(); this.triggerUndo(); return }
+    if (this.action(e, 'redo'))  { e.preventDefault(); this.triggerRedo(); return }
+    if (this.action(e, 'fitView')) { e.preventDefault(); this.renderer.fitView(); return }
 
-    if (e.key === 'Delete' || e.key === 'Backspace') {
+    if (this.action(e, 'deleteSelected')) {
       const { selectedId, activeLevelId } = store
       if (!selectedId || !activeLevelId) return
       const level = this.getActiveLevel()
       if (!level) return
-
       const room = level.rooms.find((r) => r.id === selectedId)
       if (room) {
         store.dispatch(new RemoveRoomCommand(activeLevelId, room))
-        store.setSelected(null)
-        this.renderer.setSelection(null)
-        return
+        store.setSelected(null); this.renderer.setSelection(null); return
       }
       const hallway = level.hallways.find((h) => h.id === selectedId)
       if (hallway) {
         store.dispatch(new RemoveHallwayCommand(activeLevelId, hallway))
-        store.setSelected(null)
-        this.renderer.setSelection(null)
-        return
+        store.setSelected(null); this.renderer.setSelection(null); return
       }
       const placement = level.placements.find((p) => p.id === selectedId)
       if (placement) {
         store.dispatch(new RemoveObjectCommand(activeLevelId, placement))
-        store.setSelected(null)
-        this.renderer.setSelection(null)
+        store.setSelected(null); this.renderer.setSelection(null)
       }
+      return
     }
 
-    // Tool shortcuts
-    if (!ctrl) {
-      switch (e.key) {
-        case 'r': case 'R': this.switchTool('room');    break
-        case 'h': case 'H': this.switchTool('hallway'); break
-        case 's': case 'S': this.switchTool('select');  break
-        case 'Escape':
-          if (this.state.kind === 'hallway_placing') {
-            this.renderer.clearHallwayPreview()
-            this.state = { kind: 'idle' }
-          }
-          if (this.state.kind === 'player_moving') {
-            // Revert token to its original position without dispatching
-            this.renderer.movePlayerPreview(this.state.playerId, this.state.origX, this.state.origY)
-            this.state = { kind: 'idle' }
-          }
-          if (store.activeTool === 'player_place') {
-            store.setArmedPlayer(null)
-            this.renderer.clearPlayerGhost()
-            // Return to select without clearing the player selection
-            store.setActiveTool('select')
-            this.renderer.setSelection(null)
-            break
-          }
-          if (store.activeTool !== 'select') {
-            this.switchTool('select')
-          }
-          store.setSelected(null)
-          this.renderer.setSelection(null)
-          break
+    if (this.action(e, 'toolSelect'))   { this.switchTool('select');       return }
+    if (this.action(e, 'toolRoom'))     { this.switchTool('room');         return }
+    if (this.action(e, 'toolHallway'))  { this.switchTool('hallway');      return }
+    if (this.action(e, 'toolObject'))   { this.switchTool('object');       return }
+    if (this.action(e, 'toolPlayer'))   { this.switchTool('player_place'); return }
+
+    if (this.action(e, 'viewLayout'))    { store.setViewMode('layout');    return }
+    if (this.action(e, 'viewTextured'))  { store.setViewMode('textured');  return }
+    if (this.action(e, 'viewIsometric')) { store.setViewMode('isometric'); return }
+    if (this.action(e, 'viewFps'))       { store.setViewMode('fps');       return }
+
+    if (this.action(e, 'cancel')) {
+      if (this.state.kind === 'hallway_placing') {
+        this.renderer.clearHallwayPreview()
+        this.state = { kind: 'idle' }
       }
+      if (this.state.kind === 'player_moving') {
+        this.renderer.movePlayerPreview(this.state.playerId, this.state.origX, this.state.origY)
+        this.state = { kind: 'idle' }
+      }
+      if (store.activeTool === 'player_place') {
+        store.setArmedPlayer(null)
+        this.renderer.clearPlayerGhost()
+        store.setActiveTool('select')
+        this.renderer.setSelection(null)
+        return
+      }
+      if (store.activeTool !== 'select') {
+        this.switchTool('select')
+      }
+      store.setSelected(null)
+      this.renderer.setSelection(null)
     }
   }
 

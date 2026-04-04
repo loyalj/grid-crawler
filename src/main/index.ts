@@ -8,6 +8,7 @@ const isMac = process.platform === 'darwin'
 
 let mainWindow: BrowserWindow | null = null
 let selectionKind: 'room' | 'hallway' | 'placement' | null = null
+let currentViewMode = 'layout'
 
 function send(action: string) {
   mainWindow?.webContents.send('menu:action', action)
@@ -64,11 +65,10 @@ function buildMenu() {
     {
       label: 'View',
       submenu: [
-        { label: '2D Layout',       click: () => send('view:layout') },
-        { label: '2D Textured',     click: () => send('view:textured') },
-        { type: 'separator' as const },
-        { label: 'Isometric',       click: () => send('view:isometric') },
-        { label: 'FPS Walkthrough', click: () => send('view:fps') },
+        { label: '2D Layout',       type: 'radio' as const, checked: currentViewMode === 'layout',    click: () => send('view:layout') },
+        { label: '2D Textured',     type: 'radio' as const, checked: currentViewMode === 'textured',  click: () => send('view:textured') },
+        { label: 'Isometric',       type: 'radio' as const, checked: currentViewMode === 'isometric', click: () => send('view:isometric') },
+        { label: 'FPS Walkthrough', type: 'radio' as const, checked: currentViewMode === 'fps',       click: () => send('view:fps') },
         ...(isDev ? [
           { type: 'separator' as const },
           { role: 'toggleDevTools' as const }
@@ -183,6 +183,12 @@ ipcMain.on('window:setTitle', (_event, title: string) => {
 // IPC: Selection kind changed — rebuild menu to update copy/cut enabled state
 ipcMain.on('menu:selectionKind', (_event, kind: typeof selectionKind) => {
   selectionKind = kind
+  buildMenu()
+})
+
+// IPC: View mode changed — rebuild menu to update checked state
+ipcMain.on('menu:viewMode', (_event, mode: string) => {
+  currentViewMode = mode
   buildMenu()
 })
 
