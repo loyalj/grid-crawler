@@ -1,16 +1,16 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { PointerLockControls } from 'three/examples/jsm/controls/PointerLockControls.js'
-import { Level, Room, Hallway, SurfaceSettings, WallMaterial, ObjectDefinition, TokenDefinition, PropDefinition, Player, FloorTextureDefinition } from '../types/map'
+import { Level, Room, Hallway, SurfaceSettings, WallMaterial, ObjectDefinition, TokenDefinition, PropDefinition, Player, FloorTextureDefinition, WallTextureDefinition } from '../types/map'
 import { computePath, expandPath, resolveExitPoints } from './hallwayPath'
 
 export type ViewMode = 'layout' | 'textured' | 'isometric' | 'fps'
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
-const CELL_SIZE   = 1
-const WALL_HEIGHT = 1.5
-const WALL_DEPTH  = 0.15
+const CELL_SIZE            = 1
+const WALL_HEIGHT_PER_UNIT = 1.0    // world-space height per ceilingHeight unit = 1 grid unit = 5 ft
+const WALL_DEPTH           = 0.15
 
 /** Fallback layout color when a floor material ID isn't in the catalog. */
 const FALLBACK_FLOOR_COLOR = 0x4a3f35
@@ -73,6 +73,11 @@ export class MapRenderer {
   private floorCatalog: FloorTextureDefinition[] = []
   // Pre-loaded THREE.Texture instances keyed by FloorTextureDefinition.id
   private floorTextureCache = new Map<string, THREE.Texture>()
+
+  // Wall texture catalog (app-tier only)
+  private wallCatalog: WallTextureDefinition[] = []
+  // Pre-loaded THREE.Texture instances keyed by WallTextureDefinition.id
+  private wallTextureCache = new Map<string, THREE.Texture>()
   // Current view mode
   private viewMode: ViewMode = 'layout'
 
@@ -227,7 +232,7 @@ export class MapRenderer {
     const cam = new THREE.PerspectiveCamera(
       75, this.canvas.clientWidth / Math.max(this.canvas.clientHeight, 1), 0.1, 500
     )
-    cam.position.set(spawnX, 1.7, spawnZ)
+    cam.position.set(spawnX, 1.2, spawnZ)
     return cam
   }
 
@@ -297,6 +302,10 @@ export class MapRenderer {
   }
 
   // ── Fit view ──────────────────────────────────────────────────────────────────
+
+  isFpsPointerLocked(): boolean {
+    return this.fpsControls?.isLocked ?? false
+  }
 
   fitView(): void {
     if (this.viewMode === 'fps' || !this.orbitControls) return
@@ -370,6 +379,27 @@ export class MapRenderer {
     }
   }
 
+  /** Update the wall texture catalog and pre-load all textures. */
+  setWallCatalog(defs: WallTextureDefinition[]): void {
+    this.wallCatalog = defs
+
+    const incomingIds = new Set(defs.map((d) => d.id))
+    for (const [id, tex] of this.wallTextureCache) {
+      if (!incomingIds.has(id)) { tex.dispose(); this.wallTextureCache.delete(id) }
+    }
+
+    const loader = new THREE.TextureLoader()
+    for (const def of defs) {
+      if (this.wallTextureCache.has(def.id)) continue
+      if (!def.textureUrl) continue
+      const tex = loader.load(def.textureUrl, () => {
+        tex.wrapS = tex.wrapT = THREE.RepeatWrapping
+        tex.needsUpdate = true
+      })
+      this.wallTextureCache.set(def.id, tex)
+    }
+  }
+
   loadLevel(level: Level): void {
     this.currentLevel = level
     this.disposeGroup(this.mapGroup)
@@ -385,18 +415,25 @@ export class MapRenderer {
     this.selectionGroup.clear()
     if (playerSel) this.selectionGroup.add(playerSel)
 
-    const { gridWidth, gridHeight, wallMaterial } = level.settings
-    const wallColor = WALL_COLORS[wallMaterial]
+    const { gridWidth, gridHeight, wallMaterial, ceilingHeight: levelCeilH } = level.settings
 
-    // Build a global floor set for wall adjacency queries
-    const floorSet = new Set<string>()
+    // Build a global floor set for wall adjacency queries, plus per-cell maps
+    // for wall material and ceiling height so each segment uses its owner's settings.
+    const floorSet       = new Set<string>()
+    const cellWallMat    = new Map<string, WallMaterial>()
+    const cellCeilHeight = new Map<string, number>()
 
     // ── Rooms ──
     for (const room of level.rooms) {
       this.renderRoomFloor(room, level.settings)
+      const mat    = (room.settings.wallMaterial  ?? wallMaterial) as WallMaterial
+      const ceilH  = room.settings.ceilingHeight  ?? levelCeilH
       for (let row = room.y; row < room.y + room.height; row++) {
         for (let col = room.x; col < room.x + room.width; col++) {
-          floorSet.add(`${col},${row}`)
+          const key = `${col},${row}`
+          floorSet.add(key)
+          cellWallMat.set(key, mat)
+          cellCeilHeight.set(key, ceilH)
         }
       }
     }
@@ -412,15 +449,21 @@ export class MapRenderer {
       const materialId   = hallway.settings.floorMaterial ?? level.settings.floorMaterial
       const color        = this.getLayoutColor(materialId)
 
+      const hallwayWallMat = (hallway.settings.wallMaterial  ?? wallMaterial) as WallMaterial
+      const hallwayCeilH   =  hallway.settings.ceilingHeight ?? levelCeilH
       const corridorCells = path.filter((c) => !floorSet.has(`${c.x},${c.y}`))
-      for (const c of corridorCells) floorSet.add(`${c.x},${c.y}`)
+      for (const c of corridorCells) {
+        const key = `${c.x},${c.y}`
+        floorSet.add(key)
+        cellWallMat.set(key, hallwayWallMat)
+        cellCeilHeight.set(key, hallwayCeilH)
+      }
 
       if (corridorCells.length === 0) continue
 
-      // Render hallway cells as a merged vertex-colored geometry (layout) or
-      // per-cell textured quads (textured). Layout mode is always a merged mesh.
       const positions: number[] = []
       const colors:    number[] = []
+      const uvs:       number[] = []
       const indices:   number[] = []
       let vi = 0
 
@@ -428,80 +471,112 @@ export class MapRenderer {
       const g = ((color >> 8)  & 0xff) / 255
       const b = (color & 0xff)          / 255
 
+      const def      = this.getFloorDef(materialId)
+      const tileSize = def?.tileSize ?? 2
+
       for (const cell of corridorCells) {
         const px = cell.x * CELL_SIZE
         const pz = cell.y * CELL_SIZE
         const base = vi
-        positions.push(px, 0, pz, px + CELL_SIZE, 0, pz, px, 0, pz + CELL_SIZE, px + CELL_SIZE, 0, pz + CELL_SIZE)
+        positions.push(
+          px,             0, pz,
+          px + CELL_SIZE, 0, pz,
+          px,             0, pz + CELL_SIZE,
+          px + CELL_SIZE, 0, pz + CELL_SIZE,
+        )
         for (let v = 0; v < 4; v++) colors.push(r, g, b)
+        // World-space UVs so texture tiles continuously and aligns with room floors
+        const u0 = cell.x / tileSize
+        const u1 = (cell.x + 1) / tileSize
+        const v0 = cell.y / tileSize
+        const v1 = (cell.y + 1) / tileSize
+        uvs.push(u0, v0,  u1, v0,  u0, v1,  u1, v1)
         indices.push(base, base + 2, base + 1, base + 1, base + 2, base + 3)
         vi += 4
       }
 
-      if (positions.length > 0) {
-        const geo = new THREE.BufferGeometry()
-        geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
-        geo.setAttribute('color',    new THREE.Float32BufferAttribute(colors,    3))
-        geo.setIndex(indices)
-        geo.computeVertexNormals()
-        const hallwayTex = this.viewMode !== 'layout'
-          ? this.floorTextureCache.get(materialId)
-          : undefined
-        let hallwayMat: THREE.Material
-        if (hallwayTex) {
-          const t = hallwayTex.clone()
-          t.wrapS = t.wrapT = THREE.RepeatWrapping
-          // Approximate repeat based on corridor bounding box
-          const def = this.getFloorDef(materialId)
-          t.repeat.set(
-            (corridorCells.length / (def?.tileSize ?? 2)),
-            1
-          )
-          t.needsUpdate = true
-          hallwayMat = new THREE.MeshStandardMaterial({ map: t })
-        } else {
-          hallwayMat = new THREE.MeshLambertMaterial({ vertexColors: true })
-        }
-        this.mapGroup.add(new THREE.Mesh(geo, hallwayMat))
+      const geo = new THREE.BufferGeometry()
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+      geo.setAttribute('color',    new THREE.Float32BufferAttribute(colors,    3))
+      geo.setAttribute('uv',       new THREE.Float32BufferAttribute(uvs,       2))
+      geo.setIndex(indices)
+      geo.computeVertexNormals()
+
+      const hallwayTex = this.viewMode !== 'layout'
+        ? this.floorTextureCache.get(materialId)
+        : undefined
+      let hallwayMat: THREE.Material
+      if (hallwayTex) {
+        const t = hallwayTex.clone()
+        t.wrapS = t.wrapT = THREE.RepeatWrapping
+        t.needsUpdate = true
+        hallwayMat = new THREE.MeshStandardMaterial({ map: t })
+      } else {
+        hallwayMat = new THREE.MeshLambertMaterial({ vertexColors: true })
       }
+      this.mapGroup.add(new THREE.Mesh(geo, hallwayMat))
     }
 
     // Persist walkable set for FPS collision
     this.fpsWalkable = new Set(floorSet)
 
     // ── Walls (edge-based) ──
-    const wallMatNS = new THREE.MeshLambertMaterial({ color: wallColor })
-    const wallMatEW = new THREE.MeshLambertMaterial({ color: wallColor })
+    // Materials are keyed by "mat-wallH" (at most 4 mats × 4 heights = 16 combos).
+    const builtWallMats = new Map<string, THREE.Material>()
+    const getWallMat = (mat: WallMaterial, wallH: number): THREE.Material => {
+      const cacheKey = `${mat}-${wallH}`
+      if (builtWallMats.has(cacheKey)) return builtWallMats.get(cacheKey)!
+      let m: THREE.Material
+      if (this.viewMode !== 'layout') {
+        const def = this.wallCatalog.find((d) => d.id === mat)
+        const tex = this.wallTextureCache.get(mat)
+        if (tex && def) {
+          const t = tex.clone()
+          t.wrapS = t.wrapT = THREE.RepeatWrapping
+          t.repeat.set(CELL_SIZE / def.tileSize, wallH / def.tileSize)
+          t.needsUpdate = true
+          m = new THREE.MeshStandardMaterial({ map: t })
+        } else {
+          m = new THREE.MeshLambertMaterial({ color: WALL_COLORS[mat] })
+        }
+      } else {
+        m = new THREE.MeshLambertMaterial({ color: WALL_COLORS[mat] })
+      }
+      builtWallMats.set(cacheKey, m)
+      return m
+    }
 
     for (const key of floorSet) {
       const [col, row] = key.split(',').map(Number)
+      const mat   = cellWallMat.get(key) ?? wallMaterial
+      const wallH = (cellCeilHeight.get(key) ?? levelCeilH) * WALL_HEIGHT_PER_UNIT
 
       // North edge: row - 1 not floor
       if (!floorSet.has(`${col},${row - 1}`)) {
-        const geo  = new THREE.BoxGeometry(CELL_SIZE, WALL_HEIGHT, WALL_DEPTH)
-        const mesh = new THREE.Mesh(geo, wallMatNS)
-        mesh.position.set((col + 0.5) * CELL_SIZE, WALL_HEIGHT / 2, row * CELL_SIZE)
+        const geo  = new THREE.BoxGeometry(CELL_SIZE, wallH, WALL_DEPTH)
+        const mesh = new THREE.Mesh(geo, getWallMat(mat, wallH))
+        mesh.position.set((col + 0.5) * CELL_SIZE, wallH / 2, row * CELL_SIZE)
         this.wallGroup.add(mesh)
       }
       // South edge
       if (!floorSet.has(`${col},${row + 1}`)) {
-        const geo  = new THREE.BoxGeometry(CELL_SIZE, WALL_HEIGHT, WALL_DEPTH)
-        const mesh = new THREE.Mesh(geo, wallMatNS)
-        mesh.position.set((col + 0.5) * CELL_SIZE, WALL_HEIGHT / 2, (row + 1) * CELL_SIZE)
+        const geo  = new THREE.BoxGeometry(CELL_SIZE, wallH, WALL_DEPTH)
+        const mesh = new THREE.Mesh(geo, getWallMat(mat, wallH))
+        mesh.position.set((col + 0.5) * CELL_SIZE, wallH / 2, (row + 1) * CELL_SIZE)
         this.wallGroup.add(mesh)
       }
       // West edge
       if (!floorSet.has(`${col - 1},${row}`)) {
-        const geo  = new THREE.BoxGeometry(WALL_DEPTH, WALL_HEIGHT, CELL_SIZE)
-        const mesh = new THREE.Mesh(geo, wallMatEW)
-        mesh.position.set(col * CELL_SIZE, WALL_HEIGHT / 2, (row + 0.5) * CELL_SIZE)
+        const geo  = new THREE.BoxGeometry(WALL_DEPTH, wallH, CELL_SIZE)
+        const mesh = new THREE.Mesh(geo, getWallMat(mat, wallH))
+        mesh.position.set(col * CELL_SIZE, wallH / 2, (row + 0.5) * CELL_SIZE)
         this.wallGroup.add(mesh)
       }
       // East edge
       if (!floorSet.has(`${col + 1},${row}`)) {
-        const geo  = new THREE.BoxGeometry(WALL_DEPTH, WALL_HEIGHT, CELL_SIZE)
-        const mesh = new THREE.Mesh(geo, wallMatEW)
-        mesh.position.set((col + 1) * CELL_SIZE, WALL_HEIGHT / 2, (row + 0.5) * CELL_SIZE)
+        const geo  = new THREE.BoxGeometry(WALL_DEPTH, wallH, CELL_SIZE)
+        const mesh = new THREE.Mesh(geo, getWallMat(mat, wallH))
+        mesh.position.set((col + 1) * CELL_SIZE, wallH / 2, (row + 0.5) * CELL_SIZE)
         this.wallGroup.add(mesh)
       }
     }

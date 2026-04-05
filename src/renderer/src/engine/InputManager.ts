@@ -868,15 +868,47 @@ export class InputManager {
     if (this.action(e, 'viewIsometric')) { store.setViewMode('isometric'); return }
     if (this.action(e, 'viewFps'))       { store.setViewMode('fps');       return }
 
+    if (this.action(e, 'toggleGrid')) {
+      e.preventDefault()
+      const s = useAppSettings.getState()
+      s.set({ gridVisible: !s.gridVisible })
+      return
+    }
+
     if (this.action(e, 'cancel')) {
-      if (this.state.kind === 'hallway_placing') {
-        this.renderer.clearHallwayPreview()
-        this.state = { kind: 'idle' }
+      // In FPS mode, Escape is handled by the pointerlockchange listener in MapCanvas
+      if (store.viewMode === 'fps') return
+
+      // Cancel any in-progress interaction and revert visuals
+      switch (this.state.kind) {
+        case 'room_placing':
+          this.renderer.clearGhost()
+          break
+        case 'room_moving':
+          this.renderer.clearMovePreview()
+          break
+        case 'room_resizing':
+          this.renderer.clearGhost()
+          break
+        case 'hallway_placing':
+          this.renderer.clearHallwayPreview()
+          break
+        case 'hallway_endpoint':
+        case 'hallway_waypoint':
+          this.renderer.clearEndpointPreview()
+          break
+        case 'object_moving':
+          this.renderer.setObjectMovePreview(this.state.placementId, this.state.origX, this.state.origY)
+          break
+        case 'label_moving':
+          this.renderer.moveLabelPreview(this.state.roomId, this.state.origOffset.x, this.state.origOffset.y)
+          break
+        case 'player_moving':
+          this.renderer.movePlayerPreview(this.state.playerId, this.state.origX, this.state.origY)
+          break
       }
-      if (this.state.kind === 'player_moving') {
-        this.renderer.movePlayerPreview(this.state.playerId, this.state.origX, this.state.origY)
-        this.state = { kind: 'idle' }
-      }
+      this.state = { kind: 'idle' }
+
       if (store.activeTool === 'player_place') {
         store.setArmedPlayer(null)
         this.renderer.clearPlayerGhost()

@@ -42,11 +42,17 @@ export const useAppSettings = create<AppSettingsStore>()(
     }),
     {
       name: 'grid-crawler-settings',
-      version: 2,
+      version: 3,
       migrate: (state, fromVersion) => {
         const s = state as Partial<AppSettings>
         if (fromVersion < 2) {
           s.keyBindings = DEFAULT_KEY_BINDINGS
+        }
+        if (fromVersion < 3) {
+          // Merge new toggleGrid binding without resetting all keybindings
+          if (s.keyBindings && !('toggleGrid' in s.keyBindings)) {
+            s.keyBindings = { ...s.keyBindings, toggleGrid: DEFAULT_KEY_BINDINGS.toggleGrid }
+          }
         }
         return s
       },

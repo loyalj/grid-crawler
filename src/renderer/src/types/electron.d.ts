@@ -14,10 +14,13 @@ interface Window {
     writeFile: (filePath: string, data: ArrayBuffer) => Promise<boolean>
     loadAppCatalog:      () => Promise<unknown[]>
     loadAppFloorCatalog: () => Promise<unknown[]>
+    loadAppWallCatalog:  () => Promise<unknown[]>
     setTitle: (title: string) => void
     confirmClose: () => void
     setSelectionKind: (kind: 'room' | 'hallway' | 'placement' | null) => void
     setViewMode:      (mode: string) => void
+    setGridVisible:   (visible: boolean) => void
+    setKeyBindings:   (bindings: unknown) => void
     onMenuAction:     (callback: (action: string) => void) => void
     offMenuAction:    (callback: (action: string) => void) => void
     checkForUpdates:  () => void

@@ -1,5 +1,5 @@
 import React, { useRef } from 'react'
-import { Stack, Text, Divider, Select, NumberInput, TextInput, Textarea, Switch, Button, Group } from '@mantine/core'
+import { Stack, Text, Divider, Select, TextInput, Textarea, Switch, Button, Group } from '@mantine/core'
 import { useMapStore } from '../store/mapStore'
 import {
   Room, Hallway, Level,
@@ -311,13 +311,18 @@ function HallwayDetails({
     ))
   }
 
-  function onWidth(v: number | string) {
-    const n = typeof v === 'number' ? v : parseInt(String(v))
-    if (isNaN(n)) return
-    const clamped = Math.min(5, Math.max(1, n)) as Hallway['width']
-    if (clamped === hallway.width) return
+  const WIDTH_OPTIONS = [
+    { value: '1', label: 'Small' },
+    { value: '3', label: 'Medium' },
+    { value: '5', label: 'Large' },
+  ]
+
+  function onWidth(v: string | null) {
+    if (!v) return
+    const n = parseInt(v) as Hallway['width']
+    if (n === hallway.width) return
     useMapStore.getState().dispatch(
-      new UpdateHallwayWidthCommand(levelId, hallway.id, hallway.width, clamped)
+      new UpdateHallwayWidthCommand(levelId, hallway.id, hallway.width, n)
     )
   }
 
@@ -399,14 +404,13 @@ function HallwayDetails({
         <Text className={classes.sectionLabel}>Geometry</Text>
 
         <ControlRow label="Width">
-          <NumberInput
+          <Select
             size="xs"
-            min={1}
-            max={5}
-            value={hallway.width}
+            data={WIDTH_OPTIONS}
+            value={String(hallway.width)}
             onChange={onWidth}
-            allowDecimal={false}
-            clampBehavior="strict"
+            allowDeselect={false}
+            comboboxProps={{ withinPortal: true }}
             classNames={{ input: classes.selectInput }}
           />
         </ControlRow>

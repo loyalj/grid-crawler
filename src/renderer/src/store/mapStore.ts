@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { MapProject, Level, LevelSettings, DEFAULT_SETTINGS, ObjectDefinition, FloorTextureDefinition, Room, ObjectPlacement, Hallway } from '../types/map'
+import { MapProject, Level, LevelSettings, DEFAULT_SETTINGS, ObjectDefinition, FloorTextureDefinition, WallTextureDefinition, Room, ObjectPlacement, Hallway } from '../types/map'
 import { Command } from '../types/commands'
 import { AddLevelCommand, RemoveLevelCommand, AddPlayerCommand, RemovePlayerCommand } from '../engine/commands'
 
@@ -70,8 +70,13 @@ interface MapStore {
   appFloorCatalog: FloorTextureDefinition[]
   setAppFloorCatalog: (catalog: FloorTextureDefinition[]) => void
 
+  // Wall texture catalog (app-tier loaded at startup)
+  appWallCatalog: WallTextureDefinition[]
+  setAppWallCatalog: (catalog: WallTextureDefinition[]) => void
+
   // Editor UI (reactive for toolbar etc.)
   viewMode:           ViewMode
+  previousViewMode:   ViewMode   // the mode before entering FPS, used to restore on exit
   activeTool:         EditorTool
   navSection:         NavSection
   selectedId:         string | null  // selected room, hallway, or placement id
@@ -134,7 +139,11 @@ export const useMapStore = create<MapStore>((set, get) => ({
   appFloorCatalog: [],
   setAppFloorCatalog: (appFloorCatalog) => set({ appFloorCatalog }),
 
+  appWallCatalog: [],
+  setAppWallCatalog: (appWallCatalog) => set({ appWallCatalog }),
+
   viewMode:          'layout' as ViewMode,
+  previousViewMode:  'layout' as ViewMode,
   activeTool:        'select',
   navSection:        'map' as NavSection,
   selectedId:        null,
@@ -183,7 +192,10 @@ export const useMapStore = create<MapStore>((set, get) => ({
   // ── Navigation ───────────────────────────────────────────────────────────────
 
   setActiveLevel: (activeLevelId) => set({ activeLevelId, selectedId: null, projectSelected: false, selectedPlayerId: null }),
-  setViewMode:    (viewMode) => set({ viewMode }),
+  setViewMode:    (viewMode) => set((s) => ({
+    viewMode,
+    previousViewMode: viewMode === 'fps' ? s.viewMode : s.previousViewMode,
+  })),
   setNavSection:  (navSection) => set(navSection === 'objects'
     ? { navSection, activeTool: 'select', armedDefinitionId: null }
     : navSection === 'players'

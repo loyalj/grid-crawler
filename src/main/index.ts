@@ -8,7 +8,28 @@ const isMac = process.platform === 'darwin'
 
 let mainWindow: BrowserWindow | null = null
 let selectionKind: 'room' | 'hallway' | 'placement' | null = null
-let currentViewMode = 'layout'
+let currentViewMode    = 'layout'
+let currentGridVisible = true
+
+type SimpleBinding = { key: string; ctrl?: boolean; shift?: boolean; alt?: boolean }
+type KeyBindingsMap = Record<string, SimpleBinding[]>
+let currentKeyBindings: KeyBindingsMap = {}
+
+function toAccelerator(b: SimpleBinding): string {
+  const parts: string[] = []
+  if (b.ctrl)  parts.push('CmdOrCtrl')
+  if (b.alt)   parts.push('Alt')
+  if (b.shift) parts.push('Shift')
+  const key = b.key.length === 1 ? b.key.toUpperCase() : b.key
+  parts.push(key)
+  return parts.join('+')
+}
+
+function accel(action: string): string | undefined {
+  const bindings = currentKeyBindings[action]
+  if (!bindings || bindings.length === 0) return undefined
+  return toAccelerator(bindings[0])
+}
 
 function send(action: string) {
   mainWindow?.webContents.send('menu:action', action)
@@ -53,8 +74,8 @@ function buildMenu() {
     {
       label: 'Edit',
       submenu: [
-        { label: 'Undo',  accelerator: 'CmdOrCtrl+Z',       click: () => send('edit:undo') },
-        { label: 'Redo',  accelerator: 'CmdOrCtrl+Shift+Z', click: () => send('edit:redo') },
+        { label: 'Undo',  accelerator: accel('undo') ?? 'CmdOrCtrl+Z',       click: () => send('edit:undo') },
+        { label: 'Redo',  accelerator: accel('redo') ?? 'CmdOrCtrl+Shift+Z', click: () => send('edit:redo') },
         { type: 'separator' as const },
         { label: 'Cut',   accelerator: 'CmdOrCtrl+X', enabled: selectionKind === 'room' || selectionKind === 'placement', click: () => send('edit:cut') },
         { label: 'Copy',  accelerator: 'CmdOrCtrl+C', enabled: selectionKind === 'room' || selectionKind === 'placement', click: () => send('edit:copy') },
@@ -65,10 +86,12 @@ function buildMenu() {
     {
       label: 'View',
       submenu: [
-        { label: '2D Layout',       type: 'radio' as const, checked: currentViewMode === 'layout',    click: () => send('view:layout') },
-        { label: '2D Textured',     type: 'radio' as const, checked: currentViewMode === 'textured',  click: () => send('view:textured') },
-        { label: 'Isometric',       type: 'radio' as const, checked: currentViewMode === 'isometric', click: () => send('view:isometric') },
-        { label: 'FPS Walkthrough', type: 'radio' as const, checked: currentViewMode === 'fps',       click: () => send('view:fps') },
+        { label: '2D Layout',       type: 'radio' as const, checked: currentViewMode === 'layout',    accelerator: accel('viewLayout'),    click: () => send('view:layout') },
+        { label: '2D Textured',     type: 'radio' as const, checked: currentViewMode === 'textured',  accelerator: accel('viewTextured'),  click: () => send('view:textured') },
+        { label: 'Isometric',       type: 'radio' as const, checked: currentViewMode === 'isometric', accelerator: accel('viewIsometric'), click: () => send('view:isometric') },
+        { label: 'FPS Walkthrough', type: 'radio' as const, checked: currentViewMode === 'fps',       accelerator: accel('viewFps'),       click: () => send('view:fps') },
+        { type: 'separator' as const },
+        { label: 'Show Grid', type: 'checkbox' as const, checked: currentGridVisible, accelerator: accel('toggleGrid'), click: () => send('view:toggleGrid') },
         ...(isDev ? [
           { type: 'separator' as const },
           { role: 'toggleDevTools' as const }
@@ -192,6 +215,18 @@ ipcMain.on('menu:viewMode', (_event, mode: string) => {
   buildMenu()
 })
 
+// IPC: Grid visibility changed — rebuild menu to sync checkbox
+ipcMain.on('menu:gridVisible', (_event, visible: boolean) => {
+  currentGridVisible = visible
+  buildMenu()
+})
+
+// IPC: Keybindings changed — rebuild menu to update accelerators
+ipcMain.on('menu:keyBindings', (_event, bindings: KeyBindingsMap) => {
+  currentKeyBindings = bindings
+  buildMenu()
+})
+
 // IPC: Renderer confirmed it's safe to close
 ipcMain.on('app:confirmClose', () => {
   mainWindow?.destroy()
@@ -303,21 +338,24 @@ function getFloorTextureDir(): string {
   return join(process.resourcesPath, 'textures', 'floor')
 }
 
-ipcMain.handle('floorCatalog:loadApp', async () => {
-  const dir = getFloorTextureDir()
+function getWallTextureDir(): string {
+  if (isDev) return join(app.getAppPath(), 'resources', 'textures', 'walls')
+  return join(process.resourcesPath, 'textures', 'walls')
+}
+
+async function loadTextureCatalog(dir: string): Promise<Array<Record<string, unknown>>> {
   const catalogPath = join(dir, 'catalog.json')
   if (!existsSync(catalogPath)) {
-    console.warn('[floorCatalog] missing catalog.json at', catalogPath)
+    console.warn('[textureCatalog] missing catalog.json at', catalogPath)
     return []
   }
   let defs: Array<Record<string, unknown>>
   try {
     defs = JSON.parse(readFileSync(catalogPath, 'utf8'))
   } catch (e) {
-    console.warn('[floorCatalog] failed to parse catalog.json:', e)
+    console.warn('[textureCatalog] failed to parse catalog.json:', e)
     return []
   }
-  // Read each texture file and encode as a data: URL (file:// is blocked in renderer)
   for (const def of defs) {
     def.tier = 'app'
     def.textureUrl = ''
@@ -330,12 +368,15 @@ ipcMain.handle('floorCatalog:loadApp', async () => {
           const mime = ext === 'png' ? 'image/png' : 'image/jpeg'
           def.textureUrl = `data:${mime};base64,${buf.toString('base64')}`
         } catch (e) {
-          console.warn('[floorCatalog] failed to read texture file:', texPath, e)
+          console.warn('[textureCatalog] failed to read texture file:', texPath, e)
         }
       } else {
-        console.warn('[floorCatalog] missing texture file:', texPath)
+        console.warn('[textureCatalog] missing texture file:', texPath)
       }
     }
   }
   return defs
-})
+}
+
+ipcMain.handle('floorCatalog:loadApp', () => loadTextureCatalog(getFloorTextureDir()))
+ipcMain.handle('wallCatalog:loadApp',  () => loadTextureCatalog(getWallTextureDir()))

@@ -28,6 +28,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle>(function MapCanvas(_, ref) 
   const activeTool        = useMapStore((s) => s.activeTool)
   const appCatalog        = useMapStore((s) => s.appCatalog)
   const appFloorCatalog   = useMapStore((s) => s.appFloorCatalog)
+  const appWallCatalog    = useMapStore((s) => s.appWallCatalog)
   const armedDefinitionId = useMapStore((s) => s.armedDefinitionId)
   const armedPlayerId     = useMapStore((s) => s.armedPlayerId)
 
@@ -36,6 +37,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle>(function MapCanvas(_, ref) 
   const gridOpacity      = useAppSettings((s) => s.gridOpacity)
   const snapToGrid       = useAppSettings((s) => s.snapToGrid)
   const canvasBackground = useAppSettings((s) => s.canvasBackground)
+  const keyBindings      = useAppSettings((s) => s.keyBindings)
 
   const activeLevel = useMapStore((s) => {
     const { project, activeLevelId } = s
@@ -80,6 +82,11 @@ export const MapCanvas = forwardRef<MapCanvasHandle>(function MapCanvas(_, ref) 
     inputRef.current?.setSnapToGrid(snapToGrid)
   }, [snapToGrid])
 
+  // Sync keybindings to main process so the menu can show accelerators
+  useEffect(() => {
+    window.electronAPI.setKeyBindings(keyBindings)
+  }, [keyBindings])
+
   // Resize observer
   useEffect(() => {
     const container = containerRef.current
@@ -91,6 +98,19 @@ export const MapCanvas = forwardRef<MapCanvasHandle>(function MapCanvas(_, ref) 
     obs.observe(container)
     return () => obs.disconnect()
   }, [])
+
+  // While in FPS mode, exit back to previous view when pointer lock is released
+  useEffect(() => {
+    if (viewMode !== 'fps') return
+    const handle = () => {
+      if (!document.pointerLockElement) {
+        const s = useMapStore.getState()
+        s.setViewMode(s.previousViewMode)
+      }
+    }
+    document.addEventListener('pointerlockchange', handle)
+    return () => document.removeEventListener('pointerlockchange', handle)
+  }, [viewMode])
 
   // View mode changes → renderer re-renders with current mode
   useEffect(() => {
@@ -151,6 +171,11 @@ export const MapCanvas = forwardRef<MapCanvasHandle>(function MapCanvas(_, ref) 
     const merged = [...appFloorCatalog, ...(project?.projectFloorTextures ?? [])]
     rendererRef.current?.setFloorCatalog(merged)
   }, [appFloorCatalog])
+
+  // Wall catalog changes → push to renderer
+  useEffect(() => {
+    rendererRef.current?.setWallCatalog(appWallCatalog)
+  }, [appWallCatalog])
 
   // Level data changes → full re-render
   useEffect(() => {

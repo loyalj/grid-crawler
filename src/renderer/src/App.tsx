@@ -8,6 +8,7 @@ import { DetailsPanel } from './components/DetailsPanel'
 import { SettingsContent } from './components/SettingsPanel'
 import { AboutModal } from './components/AboutModal'
 import { useMapStore } from './store/mapStore'
+import { useAppSettings } from './store/appSettingsStore'
 import { ObjectDefinition } from './types/map'
 import { buildCrwlBuffer, parseCrwlBuffer } from './engine/projectFile'
 
@@ -20,7 +21,10 @@ export default function App() {
   const setViewMode    = useMapStore((s) => s.setViewMode)
   const setAppCatalog      = useMapStore((s) => s.setAppCatalog)
   const setAppFloorCatalog = useMapStore((s) => s.setAppFloorCatalog)
-  const navSection     = useMapStore((s) => s.navSection)
+  const setAppWallCatalog  = useMapStore((s) => s.setAppWallCatalog)
+  const navSection         = useMapStore((s) => s.navSection)
+  const gridVisible        = useAppSettings((s) => s.gridVisible)
+  const setAppSettings     = useAppSettings((s) => s.set)
 
   // Right panel resize
   const [rightPanelWidth, setRightPanelWidth] = useState(190)
@@ -62,6 +66,11 @@ export default function App() {
   // Set initial window title (no project open yet)
   useEffect(() => { updateTitle(null, false) }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Keep main-process menu checkbox in sync with gridVisible setting
+  useEffect(() => {
+    window.electronAPI.setGridVisible(gridVisible)
+  }, [gridVisible])
+
   // Load app catalogs once on mount
   useEffect(() => {
     window.electronAPI.loadAppCatalog().then((raw) => {
@@ -70,6 +79,9 @@ export default function App() {
     window.electronAPI.loadAppFloorCatalog().then((raw) => {
       setAppFloorCatalog(raw as import('./types/map').FloorTextureDefinition[])
     }).catch((e) => console.warn('[App] failed to load floor catalog:', e))
+    window.electronAPI.loadAppWallCatalog().then((raw) => {
+      setAppWallCatalog(raw as import('./types/map').WallTextureDefinition[])
+    }).catch((e) => console.warn('[App] failed to load wall catalog:', e))
   }, [setAppCatalog, setAppFloorCatalog])
 
   const [showAbout, setShowAbout] = useState(false)
@@ -236,6 +248,7 @@ export default function App() {
         case 'view:textured':  setViewMode('textured');    break
         case 'view:isometric': setViewMode('isometric');   break
         case 'view:fps':       setViewMode('fps');         break
+        case 'view:toggleGrid': setAppSettings({ gridVisible: !useAppSettings.getState().gridVisible }); break
       }
     }
     window.electronAPI.onMenuAction(handler)

@@ -32,6 +32,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   loadAppFloorCatalog: (): Promise<unknown[]> =>
     ipcRenderer.invoke('floorCatalog:loadApp'),
 
+  // Wall texture catalog
+  loadAppWallCatalog: (): Promise<unknown[]> =>
+    ipcRenderer.invoke('wallCatalog:loadApp'),
+
   // Menu actions sent from the main process
   onMenuAction: (callback: (action: string) => void) => {
     const wrapper = (_event: IpcRendererEvent, action: string) => callback(action)
@@ -45,6 +49,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.send('menu:selectionKind', kind),
   setViewMode: (mode: string) =>
     ipcRenderer.send('menu:viewMode', mode),
+  setGridVisible: (visible: boolean) =>
+    ipcRenderer.send('menu:gridVisible', visible),
+  setKeyBindings: (bindings: unknown) =>
+    ipcRenderer.send('menu:keyBindings', bindings),
 
   offMenuAction: (callback: (action: string) => void) => {
     const wrapper = menuWrappers.get(callback)

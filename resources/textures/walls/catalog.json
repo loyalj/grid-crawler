@@ -1,0 +1,30 @@
+[
+  {
+    "id": "stone",
+    "name": "Stone",
+    "layoutColor": 7039851,
+    "texture": "../floor/stone.jpg",
+    "tileSize": 2
+  },
+  {
+    "id": "wood",
+    "name": "Wood",
+    "layoutColor": 8083242,
+    "texture": "../floor/wood.jpg",
+    "tileSize": 2
+  },
+  {
+    "id": "brick",
+    "name": "Brick",
+    "layoutColor": 9193018,
+    "texture": "../floor/stone.jpg",
+    "tileSize": 2
+  },
+  {
+    "id": "cave",
+    "name": "Cave",
+    "layoutColor": 4868680,
+    "texture": "../floor/ground.jpg",
+    "tileSize": 2
+  }
+]

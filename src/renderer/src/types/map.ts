@@ -13,6 +13,18 @@ export interface FloorTextureDefinition {
   tileSize:    number               // grid cells per one texture repeat
 }
 
+// ── Wall texture catalog ───────────────────────────────────────────────────────
+
+export interface WallTextureDefinition {
+  id:         string               // matches WallMaterial value: 'stone' | 'wood' | 'brick' | 'cave'
+  name:       string
+  tier:       'app' | 'project'
+  layoutColor: number              // hex color used in Layout mode (mirrors WALL_COLORS)
+  texture:    string               // relative path (app) or zip entry path (project)
+  textureUrl: string               // resolved absolute URL at load time; NOT persisted
+  tileSize:   number               // grid cells per one texture repeat
+}
+
 // ── Material types ─────────────────────────────────────────────────────────────
 
 /** A floor material ID — matches a FloorTextureDefinition.id */

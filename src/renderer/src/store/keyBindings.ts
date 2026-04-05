@@ -22,6 +22,7 @@ export type ActionId =
   | 'viewTextured'
   | 'viewIsometric'
   | 'viewFps'
+  | 'toggleGrid'
 
 export interface ActionMeta {
   label: string
@@ -43,6 +44,7 @@ export const ACTION_META: Record<ActionId, ActionMeta> = {
   viewTextured:   { label: 'View: 2D Textured', group: 'view'  },
   viewIsometric:  { label: 'View: Isometric',   group: 'view'  },
   viewFps:        { label: 'View: FPS',         group: 'view'  },
+  toggleGrid:     { label: 'Toggle Grid',       group: 'view'  },
 }
 
 export const ACTION_GROUPS: { id: ActionMeta['group']; label: string }[] = [
@@ -68,6 +70,7 @@ export const DEFAULT_KEY_BINDINGS: KeyBindings = {
   viewTextured:   [],
   viewIsometric:  [],
   viewFps:        [],
+  toggleGrid:     [{ key: 'g', ctrl: true }],
 }
 
 /** Format a KeyBinding for display, e.g. "Ctrl+Shift+Z" */
