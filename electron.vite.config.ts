@@ -11,7 +11,16 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()]
   },
   preload: {
-    plugins: [externalizeDepsPlugin()]
+    plugins: [externalizeDepsPlugin()],
+    build: {
+      rollupOptions: {
+        input: {
+          index:            resolve('src/preload/index.ts'),
+          'object-editor':  resolve('src/preload/object-editor.ts'),
+          'texture-editor': resolve('src/preload/texture-editor.ts')
+        }
+      }
+    }
   },
   renderer: {
     define: {
@@ -23,6 +32,15 @@ export default defineConfig({
         '@renderer': resolve('src/renderer/src')
       }
     },
-    plugins: [react(), svgr()]
+    plugins: [react(), svgr()],
+    build: {
+      rollupOptions: {
+        input: {
+          main:          resolve('src/renderer/index.html'),
+          objectEditor:  resolve('src/renderer/object-editor.html'),
+          textureEditor: resolve('src/renderer/texture-editor.html')
+        }
+      }
+    }
   }
 })

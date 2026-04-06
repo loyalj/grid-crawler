@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { MapProject, Level, LevelSettings, DEFAULT_SETTINGS, ObjectDefinition, FloorTextureDefinition, WallTextureDefinition, Room, ObjectPlacement, Hallway } from '../types/map'
+import { MapProject, Level, LevelSettings, DEFAULT_SETTINGS, ObjectDefinition, TextureDefinition, Room, ObjectPlacement, Hallway } from '../types/map'
 import { Command } from '../types/commands'
 import { AddLevelCommand, RemoveLevelCommand, AddPlayerCommand, RemovePlayerCommand } from '../engine/commands'
 
@@ -36,9 +36,12 @@ function createProject(name: string, width: number, height: number): MapProject 
     createdAt:            now,
     updatedAt:            now,
     metadata:             {},
-    players:              [],
-    projectFloorTextures: [],
-    projectCatalog:       [],
+    players:                  [],
+    projectTextures:          [],
+    projectCatalog:           [],
+    projectTokenCategories:   [],
+    projectPropCategories:    [],
+    projectTextureCategories: [],
     overworld:            createLevel('Overworld', 0, settings),
     dungeonLevels:        [createLevel('Level 1',  1, settings)]
   }
@@ -66,13 +69,9 @@ interface MapStore {
   appCatalog: ObjectDefinition[]
   setAppCatalog: (catalog: ObjectDefinition[]) => void
 
-  // Floor texture catalog (app-tier loaded at startup, combined with project-tier at runtime)
-  appFloorCatalog: FloorTextureDefinition[]
-  setAppFloorCatalog: (catalog: FloorTextureDefinition[]) => void
-
-  // Wall texture catalog (app-tier loaded at startup)
-  appWallCatalog: WallTextureDefinition[]
-  setAppWallCatalog: (catalog: WallTextureDefinition[]) => void
+  // Unified texture catalog (app-tier loaded at startup, combined with project-tier at runtime)
+  appTextureCatalog: TextureDefinition[]
+  setAppTextureCatalog: (catalog: TextureDefinition[]) => void
 
   // Editor UI (reactive for toolbar etc.)
   viewMode:           ViewMode
@@ -116,6 +115,10 @@ interface MapStore {
   undo:     () => void
   redo:     () => void
 
+  // Project texture management (direct mutations, not undo/redo)
+  saveProjectTexture:   (tex: TextureDefinition) => void
+  deleteProjectTexture: (id: string) => void
+
   // Level management (structural; goes through dispatch for undo support)
   addDungeonLevel:    () => void
   removeDungeonLevel: (levelId: string) => void
@@ -136,11 +139,8 @@ export const useMapStore = create<MapStore>((set, get) => ({
   appCatalog: [],
   setAppCatalog: (appCatalog) => set({ appCatalog }),
 
-  appFloorCatalog: [],
-  setAppFloorCatalog: (appFloorCatalog) => set({ appFloorCatalog }),
-
-  appWallCatalog: [],
-  setAppWallCatalog: (appWallCatalog) => set({ appWallCatalog }),
+  appTextureCatalog: [],
+  setAppTextureCatalog: (appTextureCatalog) => set({ appTextureCatalog }),
 
   viewMode:          'layout' as ViewMode,
   previousViewMode:  'layout' as ViewMode,
@@ -252,6 +252,26 @@ export const useMapStore = create<MapStore>((set, get) => ({
     dispatch(new RemovePlayerCommand(playerId))
     set((s) => s.selectedPlayerId === playerId ? { selectedPlayerId: null } : {})
   },
+
+  // ── Project texture management ───────────────────────────────────────────────
+
+  saveProjectTexture: (tex) => set((s) => {
+    if (!s.project) return {}
+    const existing = s.project.projectTextures ?? []
+    const idx = existing.findIndex((t) => t.id === tex.id)
+    const updated = idx >= 0
+      ? existing.map((t, i) => i === idx ? tex : t)
+      : [...existing, tex]
+    return { project: { ...s.project, projectTextures: updated }, isDirty: true }
+  }),
+
+  deleteProjectTexture: (id) => set((s) => {
+    if (!s.project) return {}
+    return {
+      project: { ...s.project, projectTextures: (s.project.projectTextures ?? []).filter((t) => t.id !== id) },
+      isDirty: true
+    }
+  }),
 
   // ── Document lifecycle helpers ───────────────────────────────────────────────
 

@@ -1,0 +1,62 @@
+.groupLabel {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--mantine-color-dimmed);
+  padding: 8px 10px 3px;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  cursor: pointer;
+  border-radius: 4px;
+  margin: 0 4px;
+  transition: background 80ms ease;
+}
+
+.item:hover {
+  background: var(--mantine-color-dark-6);
+}
+
+.itemSelected {
+  background: var(--mantine-color-dark-5) !important;
+}
+
+.thumb {
+  width: 32px;
+  height: 32px;
+  object-fit: cover;
+  border-radius: 4px;
+  flex-shrink: 0;
+  border: 1px solid var(--mantine-color-dark-4);
+}
+
+.colorSwatch {
+  width: 32px;
+  height: 32px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  border: 1px solid var(--mantine-color-dark-4);
+}
+
+.itemInfo {
+  min-width: 0;
+  flex: 1;
+}
+
+.itemName {
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--mantine-color-gray-2);
+}
+
+.itemMeta {
+  font-size: 10px;
+  color: var(--mantine-color-dimmed);
+}

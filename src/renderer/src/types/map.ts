@@ -1,35 +1,31 @@
-// ── Floor texture catalog ──────────────────────────────────────────────────────
+// ── Unified texture catalog ────────────────────────────────────────────────────
 
-export type FloorTextureCategory = 'stone' | 'wood' | 'earth' | 'water' | 'special'
-
-export interface FloorTextureDefinition {
-  id:          string               // matches FloorMaterial value; 'stone','wood' etc for built-ins
+export interface TextureDefinition {
+  id:          string               // unique slug; built-ins match their material ID
   name:        string
   tier:        'app' | 'project'
-  category:    FloorTextureCategory
-  layoutColor: number               // hex color used in Layout mode
-  texture:     string               // relative path (app) or zip entry path (project)
-  textureUrl:  string               // resolved absolute URL at load time; NOT persisted
+  /** Which surface(s) this texture can be applied to */
+  surface:     'floor' | 'wall' | 'both'
+  /** User-editable string used to organise the catalog sidebar only */
+  category:    string
+  layoutColor: number               // hex color shown in 2D layout mode
+  texture:     string               // relative path from textures/images/ (app) or zip entry (project)
+  textureUrl:  string               // resolved data URL at load time; NOT persisted
   tileSize:    number               // grid cells per one texture repeat
+  rotation:    0 | 90 | 180 | 270  // UV rotation applied at render time
+  offsetX:     number               // 0.0–1.0 UV shift on U axis
+  offsetY:     number               // 0.0–1.0 UV shift on V axis
 }
 
-// ── Wall texture catalog ───────────────────────────────────────────────────────
-
-export interface WallTextureDefinition {
-  id:         string               // matches WallMaterial value: 'stone' | 'wood' | 'brick' | 'cave'
-  name:       string
-  tier:       'app' | 'project'
-  layoutColor: number              // hex color used in Layout mode (mirrors WALL_COLORS)
-  texture:    string               // relative path (app) or zip entry path (project)
-  textureUrl: string               // resolved absolute URL at load time; NOT persisted
-  tileSize:   number               // grid cells per one texture repeat
-}
+/** Back-compat aliases — kept so renderer / details panel code stays readable */
+export type FloorTextureDefinition = TextureDefinition
+export type WallTextureDefinition  = TextureDefinition
 
 // ── Material types ─────────────────────────────────────────────────────────────
 
-/** A floor material ID — matches a FloorTextureDefinition.id */
+/** A material ID — matches a TextureDefinition.id */
 export type FloorMaterial = string
-export type WallMaterial  = 'stone' | 'wood' | 'brick' | 'cave'
+export type WallMaterial  = string
 
 // ── Cascade settings (Level → Room → Hallway → Cell) ──────────────────────────
 
@@ -127,14 +123,24 @@ export interface Level {
 
 // ── Object catalog ─────────────────────────────────────────────────────────────
 
-/** A free-form name/value pair the user can attach to any object definition */
+/** Describes how a property value is presented in the Details Panel */
+export type PropertyControl =
+  | { kind: 'short-text' }
+  | { kind: 'long-text' }
+  | { kind: 'number';   min?: number; max?: number }
+  | { kind: 'slider';   min: number;  max: number }
+  | { kind: 'dropdown'; options: string[] }
+  | { kind: 'checkbox' }
+
 export interface ObjectProperty {
   name:         string
+  control:      PropertyControl
   defaultValue: string
 }
 
-export type TokenCategory = 'loot' | 'trap' | 'container' | 'hazard'
-export type PropCategory  = 'furniture' | 'structure'
+/** Categories are user-editable strings, not a fixed enum */
+export type TokenCategory = string
+export type PropCategory  = string
 
 export interface TokenVisual {
   /** Relative path in catalog dir — used for editing/display only */
@@ -179,6 +185,13 @@ export interface PropDefinition extends ObjectDefinitionBase {
 }
 
 export type ObjectDefinition = TokenDefinition | PropDefinition
+
+/** Shape returned by the main process catalog:loadApp IPC handler */
+export interface AppCatalogPayload {
+  tokenCategories: string[]
+  propCategories:  string[]
+  objects:         ObjectDefinition[]
+}
 
 // ── Object placements (per-level instances) ────────────────────────────────────
 
@@ -233,10 +246,16 @@ export interface MapProject {
   updatedAt:     string
   metadata:      MapMetadata
   players:       Player[]
-  /** Project-tier floor textures; app-tier live in resources/textures/floor/. */
-  projectFloorTextures: FloorTextureDefinition[]
+  /** Project-tier textures (floor + wall); app-tier live in resources/textures/. */
+  projectTextures:          TextureDefinition[]
   /** Project-tier object definitions only. App-tier live in resources/catalog/. */
-  projectCatalog: ObjectDefinition[]
+  projectCatalog:           ObjectDefinition[]
+  /** User-defined token categories for this project (merged with app-tier at runtime) */
+  projectTokenCategories:   string[]
+  /** User-defined prop categories for this project (merged with app-tier at runtime) */
+  projectPropCategories:    string[]
+  /** User-defined texture categories for this project (merged with app-tier at runtime) */
+  projectTextureCategories: string[]
   overworld:     Level
   dungeonLevels: Level[]
 }

@@ -28,13 +28,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   loadAppCatalog: (): Promise<unknown[]> =>
     ipcRenderer.invoke('catalog:loadApp'),
 
-  // Floor texture catalog
-  loadAppFloorCatalog: (): Promise<unknown[]> =>
-    ipcRenderer.invoke('floorCatalog:loadApp'),
-
-  // Wall texture catalog
-  loadAppWallCatalog: (): Promise<unknown[]> =>
-    ipcRenderer.invoke('wallCatalog:loadApp'),
+  // Unified texture catalog
+  loadAppTextureCatalog: (): Promise<unknown[]> =>
+    ipcRenderer.invoke('textureCatalog:loadApp'),
 
   // Menu actions sent from the main process
   onMenuAction: (callback: (action: string) => void) => {
@@ -51,8 +47,45 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.send('menu:viewMode', mode),
   setGridVisible: (visible: boolean) =>
     ipcRenderer.send('menu:gridVisible', visible),
+
+  // Object editor
+  openObjectEditor: () =>
+    ipcRenderer.send('objectEditor:open'),
+
+  setObjectEditorProjectState: (state: unknown) =>
+    ipcRenderer.send('objectEditor:setProjectState', state),
+
+  onSaveProjectObject: (cb: (obj: unknown) => void) => {
+    ipcRenderer.on('objectEditor:saveProjectObject', (_e, obj) => cb(obj))
+  },
+  onDeleteProjectObject: (cb: (id: string) => void) => {
+    ipcRenderer.on('objectEditor:deleteProjectObject', (_e, id) => cb(id))
+  },
+  onSaveProjectCategories: (cb: (data: { kind: 'token' | 'prop'; categories: string[] }) => void) => {
+    ipcRenderer.on('objectEditor:saveProjectCategories', (_e, data) => cb(data))
+  },
+  onImportProjectObjects: (cb: (data: unknown) => void) => {
+    ipcRenderer.on('objectEditor:importProjectObjects', (_e, data) => cb(data))
+  },
+  onCatalogUpdated: (cb: (snapshot: unknown) => void) => {
+    ipcRenderer.on('objectEditor:catalogUpdated', (_e, snap) => cb(snap))
+  },
   setKeyBindings: (bindings: unknown) =>
     ipcRenderer.send('menu:keyBindings', bindings),
+
+  // Texture editor project state sync
+  setTextureEditorProjectState: (state: unknown) =>
+    ipcRenderer.send('textureEditor:setProjectState', state),
+
+  onSaveProjectTexture: (cb: (tex: unknown) => void) => {
+    ipcRenderer.on('textureEditor:saveProjectTexture', (_e, tex) => cb(tex))
+  },
+  onDeleteProjectTexture: (cb: (id: string) => void) => {
+    ipcRenderer.on('textureEditor:deleteProjectTexture', (_e, id) => cb(id))
+  },
+  onTextureCatalogUpdated: (cb: (snapshot: unknown) => void) => {
+    ipcRenderer.on('textureEditor:catalogUpdated', (_e, snap) => cb(snap))
+  },
 
   offMenuAction: (callback: (action: string) => void) => {
     const wrapper = menuWrappers.get(callback)

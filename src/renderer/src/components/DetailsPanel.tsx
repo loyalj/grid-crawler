@@ -1,12 +1,12 @@
 import React, { useRef } from 'react'
-import { Stack, Text, Divider, Select, TextInput, Textarea, Switch, Button, Group } from '@mantine/core'
+import { Stack, Text, Divider, Select, TextInput, Textarea, Switch, Button, Group, NumberInput, Slider } from '@mantine/core'
 import { useMapStore } from '../store/mapStore'
 import {
   Room, Hallway, Level,
   LevelSettings, SurfaceSettings,
   FloorMaterial, WallMaterial,
   ObjectPlacement, ObjectDefinition, TokenDefinition, PropPlacement,
-  Player
+  Player, PropertyControl, TextureDefinition
 } from '../types/map'
 import {
   UpdateRoomSettingsCommand,
@@ -24,21 +24,19 @@ import {
 import { PortraitCropModal } from './PortraitCropModal'
 import classes from './DetailsPanel.module.css'
 
-// ── Floor options helper ───────────────────────────────────────────────────────
+// ── Texture option helpers ─────────────────────────────────────────────────────
 
-function useFloorOptions(): { value: string; label: string }[] {
-  const appFloorCatalog = useMapStore((s) => s.appFloorCatalog)
-  const project         = useMapStore((s) => s.project)
-  const combined = [...appFloorCatalog, ...(project?.projectFloorTextures ?? [])]
-  return combined.map((d) => ({ value: d.id, label: d.name }))
+function useTextureOptions(surface: 'floor' | 'wall'): { value: string; label: string }[] {
+  const appTextureCatalog = useMapStore((s) => s.appTextureCatalog)
+  const project           = useMapStore((s) => s.project)
+  const combined: TextureDefinition[] = [
+    ...appTextureCatalog,
+    ...(project?.projectTextures ?? [])
+  ]
+  return combined
+    .filter((d) => d.surface === surface || d.surface === 'both')
+    .map((d) => ({ value: d.id, label: d.name }))
 }
-
-const WALL_OPTIONS: { value: WallMaterial; label: string }[] = [
-  { value: 'stone', label: 'Stone' },
-  { value: 'wood',  label: 'Wood'  },
-  { value: 'brick', label: 'Brick' },
-  { value: 'cave',  label: 'Cave'  },
-]
 
 const LIGHT_OPTIONS = [
   { value: 'bright', label: 'Bright' },
@@ -168,7 +166,8 @@ function RoomDetails({
     )
   }
 
-  const floorOptions = useFloorOptions()
+  const floorOptions = useTextureOptions('floor')
+  const wallOptions  = useTextureOptions('wall')
   const s = room.settings
   const ls = levelSettings
 
@@ -224,7 +223,7 @@ function RoomDetails({
         <ControlRow label="Wall">
           <Select
             size="xs"
-            data={withInherit(WALL_OPTIONS, ls.wallMaterial)}
+            data={withInherit(wallOptions, ls.wallMaterial)}
             value={s.wallMaterial ?? ''}
             onChange={onWall}
             allowDeselect={false}
@@ -364,7 +363,8 @@ function HallwayDetails({
     .filter((r) => r.id !== hallway.roomAId)
     .map((r) => ({ value: r.id, label: r.name || 'Unnamed Room' }))
 
-  const floorOptions = useFloorOptions()
+  const floorOptions = useTextureOptions('floor')
+  const wallOptions  = useTextureOptions('wall')
   const s  = hallway.settings
   const ls = levelSettings
 
@@ -435,7 +435,7 @@ function HallwayDetails({
         <ControlRow label="Wall">
           <Select
             size="xs"
-            data={withInherit(WALL_OPTIONS, ls.wallMaterial)}
+            data={withInherit(wallOptions, ls.wallMaterial)}
             value={s.wallMaterial ?? ''}
             onChange={onWall}
             allowDeselect={false}
@@ -458,6 +458,76 @@ function HallwayDetails({
       </Stack>
     </Stack>
   )
+}
+
+// ── Typed property field ──────────────────────────────────────────────────────
+
+function PropertyField({ control, value, onChange }: {
+  control:  PropertyControl
+  value:    string
+  onChange: (v: string) => void
+}) {
+  switch (control.kind) {
+    case 'long-text':
+      return (
+        <Textarea
+          size="xs" autosize minRows={2} maxRows={6}
+          value={value}
+          onChange={(e) => onChange(e.currentTarget.value)}
+        />
+      )
+    case 'number':
+      return (
+        <NumberInput
+          size="xs"
+          min={control.min} max={control.max}
+          value={value === '' ? '' : Number(value)}
+          onChange={(v) => onChange(String(v))}
+          classNames={{ input: classes.selectInput }}
+        />
+      )
+    case 'slider':
+      return (
+        <Stack gap={2}>
+          <Slider
+            size="xs" color="teal"
+            min={control.min} max={control.max}
+            value={value === '' ? control.min : Number(value)}
+            onChange={(v) => onChange(String(v))}
+          />
+          <Text size="xs" c="dimmed" ta="right">{value || control.min}</Text>
+        </Stack>
+      )
+    case 'dropdown':
+      return (
+        <Select
+          size="xs"
+          data={control.options}
+          value={value}
+          onChange={(v) => onChange(v ?? '')}
+          allowDeselect={false}
+          comboboxProps={{ withinPortal: true }}
+          classNames={{ input: classes.selectInput }}
+        />
+      )
+    case 'checkbox':
+      return (
+        <Switch
+          size="xs"
+          checked={value === 'true'}
+          onChange={(e) => onChange(e.currentTarget.checked ? 'true' : 'false')}
+        />
+      )
+    default: // 'short-text'
+      return (
+        <TextInput
+          size="xs"
+          value={value}
+          onChange={(e) => onChange(e.currentTarget.value)}
+          classNames={{ input: classes.selectInput }}
+        />
+      )
+  }
 }
 
 // ── Object / Prop details ─────────────────────────────────────────────────────
@@ -538,11 +608,10 @@ function ObjectDetails({
             <Text className={classes.sectionLabel}>Properties</Text>
             {def.properties.map((prop) => (
               <ControlRow key={prop.name} label={prop.name}>
-                <TextInput
-                  size="xs"
-                  value={merged[prop.name] ?? ''}
-                  onChange={(e) => onPropertyChange(prop.name, e.currentTarget.value)}
-                  classNames={{ input: classes.selectInput }}
+                <PropertyField
+                  control={prop.control}
+                  value={merged[prop.name] ?? prop.defaultValue ?? ''}
+                  onChange={(v) => onPropertyChange(prop.name, v)}
                 />
               </ControlRow>
             ))}

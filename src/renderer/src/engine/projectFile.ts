@@ -1,5 +1,5 @@
 import JSZip from 'jszip'
-import { MapProject, ObjectDefinition, TokenDefinition, PropDefinition, FloorTextureDefinition } from '../types/map'
+import { MapProject, ObjectDefinition, TokenDefinition, PropDefinition, TextureDefinition } from '../types/map'
 
 /** Renamed/removed floor material IDs → replacement IDs */
 const FLOOR_MATERIAL_MIGRATIONS: Record<string, string> = {
@@ -18,16 +18,16 @@ function stripDef(def: ObjectDefinition): ObjectDefinition {
   }
 }
 
-function stripFloorTextureDef(def: FloorTextureDefinition): FloorTextureDefinition {
+function stripTextureDef(def: TextureDefinition): TextureDefinition {
   return { ...def, textureUrl: '' }
 }
 
 function stripRuntimeFields(project: MapProject): MapProject {
   return {
     ...project,
-    updatedAt:            new Date().toISOString(),
-    projectCatalog:       project.projectCatalog.map(stripDef),
-    projectFloorTextures: project.projectFloorTextures.map(stripFloorTextureDef)
+    updatedAt:       new Date().toISOString(),
+    projectCatalog:  project.projectCatalog.map(stripDef),
+    projectTextures: project.projectTextures.map(stripTextureDef)
   }
 }
 
@@ -35,16 +35,16 @@ export async function buildCrwlBuffer(project: MapProject): Promise<ArrayBuffer>
   const zip   = new JSZip()
   const clean = stripRuntimeFields(project)
 
-  // Store project-tier floor texture binaries as separate zip entries
-  for (const def of project.projectFloorTextures) {
+  // Store project-tier texture image binaries as zip entries
+  for (const def of project.projectTextures) {
     if (!def.textureUrl || !def.texture) continue
     try {
       const resp = await fetch(def.textureUrl)
       const blob = await resp.blob()
       const buf  = await blob.arrayBuffer()
-      zip.file(`textures/floor/${def.texture}`, buf)
+      zip.file(`textures/images/${def.texture}`, buf)
     } catch (e) {
-      console.warn('[crwl] failed to embed floor texture:', def.texture, e)
+      console.warn('[crwl] failed to embed texture:', def.texture, e)
     }
   }
 
@@ -89,11 +89,27 @@ function migrateLevel(level: MapProject['overworld']): MapProject['overworld'] {
   }
 }
 
-function migrateProject(project: MapProject): MapProject {
+function migrateProject(raw: Record<string, unknown>): MapProject {
+  const project = raw as MapProject
+
+  // Migrate projectFloorTextures → projectTextures
+  const legacyFloorTextures = (raw['projectFloorTextures'] as TextureDefinition[] | undefined) ?? []
+  const projectTextures: TextureDefinition[] = project.projectTextures?.length
+    ? project.projectTextures
+    : legacyFloorTextures.map((d) => ({
+        rotation: 0, offsetX: 0, offsetY: 0, surface: 'floor' as const,
+        category: '', ...d
+      }))
+
   return {
-    players:              [],
-    projectFloorTextures: [],
+    players:                  [],
+    projectTextures:          [],
+    projectCatalog:           [],
+    projectTokenCategories:   [],
+    projectPropCategories:    [],
+    projectTextureCategories: [],
     ...project,
+    projectTextures,
     overworld:     migrateLevel(project.overworld),
     dungeonLevels: project.dungeonLevels.map(migrateLevel)
   }
@@ -104,12 +120,14 @@ export async function parseCrwlBuffer(data: ArrayBuffer): Promise<MapProject> {
   const jsonFile = zip.file('project.json')
   if (!jsonFile) throw new Error('Invalid .crwl file: missing project.json')
   const json    = await jsonFile.async('string')
-  const project = migrateProject(JSON.parse(json) as MapProject)
+  const project = migrateProject(JSON.parse(json))
 
-  // Resolve project-tier floor texture binaries into blob URLs
-  for (const def of project.projectFloorTextures) {
+  // Resolve project-tier texture binaries into blob URLs
+  for (const def of project.projectTextures) {
     if (!def.texture) continue
-    const entry = zip.file(`textures/floor/${def.texture}`)
+    // Support both old (textures/floor/) and new (textures/images/) paths
+    const entry = zip.file(`textures/images/${def.texture}`)
+              ?? zip.file(`textures/floor/${def.texture}`)
     if (!entry) continue
     try {
       const buf  = await entry.async('arraybuffer')
@@ -118,7 +136,7 @@ export async function parseCrwlBuffer(data: ArrayBuffer): Promise<MapProject> {
       const blob = new Blob([buf], { type: mime })
       def.textureUrl = URL.createObjectURL(blob)
     } catch (e) {
-      console.warn('[crwl] failed to extract floor texture:', def.texture, e)
+      console.warn('[crwl] failed to extract texture:', def.texture, e)
     }
   }
 

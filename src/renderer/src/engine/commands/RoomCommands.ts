@@ -328,3 +328,23 @@ export class UpdateRoomCommand implements Command {
     )
   }
 }
+
+export class ReorderRoomsCommand implements Command {
+  readonly description = 'Reorder rooms'
+
+  constructor(
+    private readonly levelId: string,
+    private readonly before:  string[],   // ordered room IDs before drag
+    private readonly after:   string[],   // ordered room IDs after drag
+  ) {}
+
+  private apply(project: MapProject, order: string[]): MapProject {
+    return mapRooms(project, this.levelId, (rooms) => {
+      const byId = new Map(rooms.map((r) => [r.id, r]))
+      return order.map((id) => byId.get(id)!).filter(Boolean)
+    })
+  }
+
+  execute(project: MapProject): MapProject { return this.apply(project, this.after) }
+  undo(project: MapProject):    MapProject { return this.apply(project, this.before) }
+}

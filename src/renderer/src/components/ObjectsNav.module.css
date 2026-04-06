@@ -118,6 +118,14 @@
   flex-shrink: 0;
 }
 
+.propIconThumb {
+  width: 24px;
+  height: 24px;
+  border-radius: 3px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
 /* ── Placed items ──────────────────────────────────────────────────────────── */
 
 .placedItem {

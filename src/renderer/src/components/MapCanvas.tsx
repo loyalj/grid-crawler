@@ -27,8 +27,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle>(function MapCanvas(_, ref) 
   const selectedPlayerId  = useMapStore((s) => s.selectedPlayerId)
   const activeTool        = useMapStore((s) => s.activeTool)
   const appCatalog        = useMapStore((s) => s.appCatalog)
-  const appFloorCatalog   = useMapStore((s) => s.appFloorCatalog)
-  const appWallCatalog    = useMapStore((s) => s.appWallCatalog)
+  const appTextureCatalog = useMapStore((s) => s.appTextureCatalog)
   const armedDefinitionId = useMapStore((s) => s.armedDefinitionId)
   const armedPlayerId     = useMapStore((s) => s.armedPlayerId)
 
@@ -166,16 +165,12 @@ export const MapCanvas = forwardRef<MapCanvasHandle>(function MapCanvas(_, ref) 
   }, [appCatalog])
 
   // Floor catalog changes → push combined app + project textures to renderer
+  // Texture catalog changes → push combined app + project textures to renderer
   useEffect(() => {
     const { project } = useMapStore.getState()
-    const merged = [...appFloorCatalog, ...(project?.projectFloorTextures ?? [])]
-    rendererRef.current?.setFloorCatalog(merged)
-  }, [appFloorCatalog])
-
-  // Wall catalog changes → push to renderer
-  useEffect(() => {
-    rendererRef.current?.setWallCatalog(appWallCatalog)
-  }, [appWallCatalog])
+    const merged = [...appTextureCatalog, ...(project?.projectTextures ?? [])]
+    rendererRef.current?.setTextureCatalog(merged)
+  }, [appTextureCatalog])
 
   // Level data changes → full re-render
   useEffect(() => {

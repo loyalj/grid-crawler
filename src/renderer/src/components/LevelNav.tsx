@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { Text, UnstyledButton, Badge, Group } from '@mantine/core'
 import { useMapStore } from '../store/mapStore'
-import { Level } from '../types/map'
-import { RemoveRoomCommand, RemoveHallwayCommand } from '../engine/commands'
+import { Level, Room } from '../types/map'
+import { RemoveRoomCommand, RemoveHallwayCommand, ReorderRoomsCommand } from '../engine/commands'
 import { ContextMenu } from './ContextMenu'
 import { ContextMenuAction } from '../engine/InputManager'
 import classes from './LevelNav.module.css'
@@ -29,6 +29,97 @@ interface NavContextMenu {
   screenY: number
   levelId: string
   items:   ContextMenuAction[]
+}
+
+// ── Room list with drag-and-drop reordering ───────────────────────────────────
+
+function RoomList({ rooms, levelId, selectedId, onSelect, onContextMenu }: {
+  rooms:         Room[]
+  levelId:       string
+  selectedId:    string | null
+  onSelect:      (id: string) => void
+  onContextMenu: (e: React.MouseEvent, roomId: string) => void
+}) {
+  const dragId  = useRef<string | null>(null)
+  const [overState, setOverState] = useState<{ id: string; pos: 'above' | 'below' } | null>(null)
+
+  function onDragStart(e: React.DragEvent, roomId: string) {
+    dragId.current = roomId
+    e.dataTransfer.effectAllowed = 'move'
+    // Minimal ghost — browser default is fine, but set data so Firefox works
+    e.dataTransfer.setData('text/plain', roomId)
+  }
+
+  function getDropPos(e: React.DragEvent): 'above' | 'below' {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    return e.clientY < rect.top + rect.height / 2 ? 'above' : 'below'
+  }
+
+  function onDragOver(e: React.DragEvent, roomId: string) {
+    if (dragId.current === roomId) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    setOverState({ id: roomId, pos: getDropPos(e) })
+  }
+
+  function onDragLeave() {
+    setOverState(null)
+  }
+
+  function onDrop(e: React.DragEvent, targetId: string) {
+    e.preventDefault()
+    const sourceId = dragId.current
+    setOverState(null)
+    dragId.current = null
+    if (!sourceId || sourceId === targetId) return
+
+    const pos = getDropPos(e)
+    const before = rooms.map((r) => r.id)
+    const next   = before.filter((id) => id !== sourceId)
+    const targetIdx = next.indexOf(targetId)
+    const insertAt  = pos === 'above' ? targetIdx : targetIdx + 1
+    next.splice(insertAt, 0, sourceId)
+
+    if (next.join() === before.join()) return
+    useMapStore.getState().dispatch(new ReorderRoomsCommand(levelId, before, next))
+  }
+
+  function onDragEnd() {
+    dragId.current = null
+    setOverState(null)
+  }
+
+  return (
+    <>
+      {rooms.map((room) => {
+        const over = overState?.id === room.id ? overState.pos : undefined
+        return (
+          <UnstyledButton
+            key={room.id}
+            className={classes.leafItem}
+            draggable
+            data-active={selectedId === room.id || undefined}
+            data-dragging={dragId.current === room.id || undefined}
+            data-drag-over={over}
+            onClick={() => onSelect(room.id)}
+            onContextMenu={(e) => onContextMenu(e, room.id)}
+            onDragStart={(e) => onDragStart(e, room.id)}
+            onDragOver={(e) => onDragOver(e, room.id)}
+            onDragLeave={onDragLeave}
+            onDrop={(e) => onDrop(e, room.id)}
+            onDragEnd={onDragEnd}
+          >
+            <Text className={classes.leafLabel} title={room.label || room.name}>
+              {room.label || room.name || 'Unnamed Room'}
+            </Text>
+            <Text className={classes.leafMeta}>
+              {room.width}×{room.height}
+            </Text>
+          </UnstyledButton>
+        )
+      })}
+    </>
+  )
 }
 
 // ── Level tree node ───────────────────────────────────────────────────────────
@@ -133,22 +224,13 @@ function LevelTree({ level, onContextMenu }: LevelTreeProps) {
           {level.rooms.length > 0 && (
             <>
               <Text className={classes.childGroupLabel}>Rooms</Text>
-              {level.rooms.map((room) => (
-                <UnstyledButton
-                  key={room.id}
-                  className={classes.leafItem}
-                  data-active={selectedId === room.id || undefined}
-                  onClick={() => selectItem(room.id)}
-                  onContextMenu={(e) => openRoomMenu(e, room.id)}
-                >
-                  <Text className={classes.leafLabel} title={room.label || room.name}>
-                    {room.label || room.name || 'Unnamed Room'}
-                  </Text>
-                  <Text className={classes.leafMeta}>
-                    {room.width}×{room.height}
-                  </Text>
-                </UnstyledButton>
-              ))}
+              <RoomList
+                rooms={level.rooms}
+                levelId={level.id}
+                selectedId={selectedId}
+                onSelect={selectItem}
+                onContextMenu={openRoomMenu}
+              />
             </>
           )}
 

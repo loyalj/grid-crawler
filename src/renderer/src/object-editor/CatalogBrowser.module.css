@@ -1,0 +1,89 @@
+.kindLabel {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--mantine-color-teal-5);
+  padding: 10px 8px 2px;
+}
+
+.groupLabel {
+  font-size: 10px;
+  color: var(--mantine-color-dark-2);
+  padding: 4px 8px 2px 16px;
+  text-transform: capitalize;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 8px 4px 20px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.item:hover {
+  background: var(--mantine-color-dark-6);
+}
+
+.item[data-active] {
+  background: var(--mantine-color-teal-9);
+}
+
+.thumb {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tokenIcon {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.tokenIcon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.propThumb {
+  width: 24px;
+  height: 24px;
+  object-fit: cover;
+  border-radius: 3px;
+}
+
+.propThumbPlaceholder {
+  width: 24px;
+  height: 24px;
+  background: var(--mantine-color-dark-5);
+  border-radius: 3px;
+}
+
+.itemText {
+  flex: 1;
+  min-width: 0;
+}
+
+.itemName {
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tierBadge {
+  font-size: 9px;
+  color: var(--mantine-color-violet-4);
+  letter-spacing: 0.04em;
+}

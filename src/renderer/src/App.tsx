@@ -7,6 +7,7 @@ import { SideNav } from './components/SideNav'
 import { DetailsPanel } from './components/DetailsPanel'
 import { SettingsContent } from './components/SettingsPanel'
 import { AboutModal } from './components/AboutModal'
+import { GenerateLevelModal } from './components/GenerateLevelModal'
 import { useMapStore } from './store/mapStore'
 import { useAppSettings } from './store/appSettingsStore'
 import { ObjectDefinition } from './types/map'
@@ -19,9 +20,10 @@ export default function App() {
   const setProject     = useMapStore((s) => s.setProject)
   const markSaved      = useMapStore((s) => s.markSaved)
   const setViewMode    = useMapStore((s) => s.setViewMode)
-  const setAppCatalog      = useMapStore((s) => s.setAppCatalog)
-  const setAppFloorCatalog = useMapStore((s) => s.setAppFloorCatalog)
-  const setAppWallCatalog  = useMapStore((s) => s.setAppWallCatalog)
+  const setAppCatalog           = useMapStore((s) => s.setAppCatalog)
+  const setAppTextureCatalog    = useMapStore((s) => s.setAppTextureCatalog)
+  const saveProjectTexture      = useMapStore((s) => s.saveProjectTexture)
+  const deleteProjectTexture    = useMapStore((s) => s.deleteProjectTexture)
   const navSection         = useMapStore((s) => s.navSection)
   const gridVisible        = useAppSettings((s) => s.gridVisible)
   const setAppSettings     = useAppSettings((s) => s.set)
@@ -66,6 +68,14 @@ export default function App() {
   // Set initial window title (no project open yet)
   useEffect(() => { updateTitle(null, false) }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Keep texture editor in sync with project texture state
+  useEffect(() => {
+    window.electronAPI.setTextureEditorProjectState({
+      textures: project?.projectTextures ?? [],
+      open:     !!project
+    })
+  }, [project?.projectTextures, project]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Keep main-process menu checkbox in sync with gridVisible setting
   useEffect(() => {
     window.electronAPI.setGridVisible(gridVisible)
@@ -74,18 +84,38 @@ export default function App() {
   // Load app catalogs once on mount
   useEffect(() => {
     window.electronAPI.loadAppCatalog().then((raw) => {
-      setAppCatalog(raw as ObjectDefinition[])
+      const payload = raw as import('./types/map').AppCatalogPayload
+      setAppCatalog(payload.objects)
     }).catch((e) => console.warn('[App] failed to load app catalog:', e))
-    window.electronAPI.loadAppFloorCatalog().then((raw) => {
-      setAppFloorCatalog(raw as import('./types/map').FloorTextureDefinition[])
-    }).catch((e) => console.warn('[App] failed to load floor catalog:', e))
-    window.electronAPI.loadAppWallCatalog().then((raw) => {
-      setAppWallCatalog(raw as import('./types/map').WallTextureDefinition[])
-    }).catch((e) => console.warn('[App] failed to load wall catalog:', e))
-  }, [setAppCatalog, setAppFloorCatalog])
 
-  const [showAbout, setShowAbout] = useState(false)
-  const [showNew, setShowNew]     = useState(false)
+    window.electronAPI.loadAppTextureCatalog().then((raw) => {
+      setAppTextureCatalog(raw as import('./types/map').TextureDefinition[])
+    }).catch((e) => console.warn('[App] failed to load texture catalog:', e))
+
+    // Keep app catalog in sync when the Object Editor saves changes
+    window.electronAPI.onCatalogUpdated((snapshot) => {
+      const snap = snapshot as import('./object-editor/types').CatalogSnapshot
+      setAppCatalog(snap.appObjects)
+    })
+
+    // Keep app texture catalog in sync when the Texture Editor saves app-tier changes
+    window.electronAPI.onTextureCatalogUpdated((snapshot) => {
+      const snap = snapshot as import('./texture-editor/types').TextureCatalogSnapshot
+      setAppTextureCatalog(snap.appTextures)
+    })
+
+    // Handle project-tier texture saves/deletes forwarded from the Texture Editor
+    window.electronAPI.onSaveProjectTexture((tex) => {
+      saveProjectTexture(tex as import('./types/map').TextureDefinition)
+    })
+    window.electronAPI.onDeleteProjectTexture((id) => {
+      deleteProjectTexture(id)
+    })
+  }, [setAppCatalog, setAppTextureCatalog, saveProjectTexture, deleteProjectTexture])
+
+  const [showAbout,    setShowAbout]    = useState(false)
+  const [showGenerate, setShowGenerate] = useState(false)
+  const [showNew, setShowNew]           = useState(false)
   const [mapName, setMapName]     = useState('')
   const [mapWidth, setMapWidth]   = useState<number>(32)
   const [mapHeight, setMapHeight] = useState<number>(32)
@@ -241,7 +271,8 @@ export default function App() {
         case 'edit:copy':        mapCanvasRef.current?.copy();  break
         case 'edit:cut':         mapCanvasRef.current?.cut();   break
         case 'edit:paste':       mapCanvasRef.current?.paste(); break
-        case 'app:about':        setShowAbout(true);            break
+        case 'world:generateLevel': setShowGenerate(true);       break
+        case 'app:about':           setShowAbout(true);           break
         case 'app:beforeClose':  handleBeforeClose();           break
         case 'file:exportPdf':                             break
         case 'view:layout':    setViewMode('layout');      break
@@ -283,6 +314,7 @@ export default function App() {
       </div>
 
       <AboutModal opened={showAbout} onClose={() => setShowAbout(false)} />
+      {showGenerate && <GenerateLevelModal onClose={() => setShowGenerate(false)} />}
 
       <Modal
         opened={showUnsaved}

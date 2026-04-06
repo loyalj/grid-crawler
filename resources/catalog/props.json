@@ -1,173 +1,313 @@
-[
-  {
-    "id": "prop-furniture-table",
-    "name": "Table",
-    "description": "A wooden table.",
-    "tier": "app",
-    "kind": "prop",
-    "category": "furniture",
-    "visual": {
-      "texture": "props/furniture/table.png",
-      "naturalWidth": 2,
-      "naturalHeight": 1
+{
+  "categories": [
+    "furniture",
+    "structure"
+  ],
+  "objects": [
+    {
+      "id": "prop-furniture-table",
+      "name": "Table",
+      "description": "A wooden table.",
+      "tier": "app",
+      "kind": "prop",
+      "category": "furniture",
+      "visual": {
+        "texture": "props/furniture/snGoHuHR.png",
+        "naturalWidth": 2,
+        "naturalHeight": 1
+      },
+      "properties": [
+        {
+          "name": "Material",
+          "control": {
+            "kind": "short-text"
+          },
+          "defaultValue": "wood"
+        },
+        {
+          "name": "Notes",
+          "control": {
+            "kind": "long-text"
+          },
+          "defaultValue": ""
+        }
+      ]
     },
-    "properties": [
-      { "name": "Material", "defaultValue": "wood" },
-      { "name": "Notes",    "defaultValue": "" }
-    ]
-  },
-  {
-    "id": "prop-furniture-chair",
-    "name": "Chair",
-    "description": "A simple wooden chair.",
-    "tier": "app",
-    "kind": "prop",
-    "category": "furniture",
-    "visual": {
-      "texture": "props/furniture/chair.png",
-      "naturalWidth": 1,
-      "naturalHeight": 1
+    {
+      "id": "prop-furniture-chair",
+      "name": "Chair",
+      "description": "A simple wooden chair.",
+      "tier": "app",
+      "kind": "prop",
+      "category": "furniture",
+      "visual": {
+        "texture": "props/furniture/chair.png",
+        "naturalWidth": 1,
+        "naturalHeight": 1
+      },
+      "properties": [
+        {
+          "name": "Material",
+          "control": {
+            "kind": "short-text"
+          },
+          "defaultValue": "wood"
+        },
+        {
+          "name": "Notes",
+          "control": {
+            "kind": "long-text"
+          },
+          "defaultValue": ""
+        }
+      ]
     },
-    "properties": [
-      { "name": "Material", "defaultValue": "wood" },
-      { "name": "Notes",    "defaultValue": "" }
-    ]
-  },
-  {
-    "id": "prop-furniture-bookcase",
-    "name": "Bookcase",
-    "description": "A tall shelving unit filled with books.",
-    "tier": "app",
-    "kind": "prop",
-    "category": "furniture",
-    "visual": {
-      "texture": "props/furniture/bookcase.png",
-      "naturalWidth": 1,
-      "naturalHeight": 2
+    {
+      "id": "prop-furniture-bookcase",
+      "name": "Bookcase",
+      "description": "A tall shelving unit filled with books.",
+      "tier": "app",
+      "kind": "prop",
+      "category": "furniture",
+      "visual": {
+        "texture": "props/furniture/bookcase.png",
+        "naturalWidth": 1,
+        "naturalHeight": 2
+      },
+      "properties": [
+        {
+          "name": "Contents",
+          "control": {
+            "kind": "long-text"
+          },
+          "defaultValue": ""
+        },
+        {
+          "name": "Notes",
+          "control": {
+            "kind": "long-text"
+          },
+          "defaultValue": ""
+        }
+      ]
     },
-    "properties": [
-      { "name": "Contents", "defaultValue": "" },
-      { "name": "Notes",    "defaultValue": "" }
-    ]
-  },
-  {
-    "id": "prop-furniture-bed",
-    "name": "Bed",
-    "description": "A sleeping bed.",
-    "tier": "app",
-    "kind": "prop",
-    "category": "furniture",
-    "visual": {
-      "texture": "props/furniture/bed.png",
-      "naturalWidth": 1,
-      "naturalHeight": 2
+    {
+      "id": "prop-furniture-bed",
+      "name": "Bed",
+      "description": "A sleeping bed.",
+      "tier": "app",
+      "kind": "prop",
+      "category": "furniture",
+      "visual": {
+        "texture": "props/furniture/bed.png",
+        "naturalWidth": 1,
+        "naturalHeight": 2
+      },
+      "properties": [
+        {
+          "name": "Notes",
+          "control": {
+            "kind": "long-text"
+          },
+          "defaultValue": ""
+        }
+      ]
     },
-    "properties": [
-      { "name": "Notes", "defaultValue": "" }
-    ]
-  },
-  {
-    "id": "prop-furniture-altar",
-    "name": "Altar",
-    "description": "A stone altar or sacrificial table.",
-    "tier": "app",
-    "kind": "prop",
-    "category": "furniture",
-    "visual": {
-      "texture": "props/furniture/altar.png",
-      "naturalWidth": 2,
-      "naturalHeight": 1
+    {
+      "id": "prop-furniture-altar",
+      "name": "Altar",
+      "description": "A stone altar or sacrificial table.",
+      "tier": "app",
+      "kind": "prop",
+      "category": "furniture",
+      "visual": {
+        "texture": "props/furniture/altar.png",
+        "naturalWidth": 2,
+        "naturalHeight": 1
+      },
+      "properties": [
+        {
+          "name": "Deity",
+          "control": {
+            "kind": "short-text"
+          },
+          "defaultValue": ""
+        },
+        {
+          "name": "Notes",
+          "control": {
+            "kind": "long-text"
+          },
+          "defaultValue": ""
+        }
+      ]
     },
-    "properties": [
-      { "name": "Deity",  "defaultValue": "" },
-      { "name": "Notes",  "defaultValue": "" }
-    ]
-  },
-  {
-    "id": "prop-structure-pillar",
-    "name": "Pillar",
-    "description": "A stone support column.",
-    "tier": "app",
-    "kind": "prop",
-    "category": "structure",
-    "visual": {
-      "texture": "props/structure/pillar.png",
-      "naturalWidth": 1,
-      "naturalHeight": 1
+    {
+      "id": "prop-structure-pillar",
+      "name": "Pillar",
+      "description": "A stone support column.",
+      "tier": "app",
+      "kind": "prop",
+      "category": "structure",
+      "visual": {
+        "texture": "props/structure/pillar.png",
+        "naturalWidth": 1,
+        "naturalHeight": 1
+      },
+      "properties": [
+        {
+          "name": "Material",
+          "control": {
+            "kind": "short-text"
+          },
+          "defaultValue": "stone"
+        },
+        {
+          "name": "Notes",
+          "control": {
+            "kind": "long-text"
+          },
+          "defaultValue": ""
+        }
+      ]
     },
-    "properties": [
-      { "name": "Material", "defaultValue": "stone" },
-      { "name": "Notes",    "defaultValue": "" }
-    ]
-  },
-  {
-    "id": "prop-structure-statue",
-    "name": "Statue",
-    "description": "A carved stone statue.",
-    "tier": "app",
-    "kind": "prop",
-    "category": "structure",
-    "visual": {
-      "texture": "props/structure/statue.png",
-      "naturalWidth": 1,
-      "naturalHeight": 1
+    {
+      "id": "prop-structure-statue",
+      "name": "Statue",
+      "description": "A carved stone statue.",
+      "tier": "app",
+      "kind": "prop",
+      "category": "structure",
+      "visual": {
+        "texture": "props/structure/statue.png",
+        "naturalWidth": 1,
+        "naturalHeight": 1
+      },
+      "properties": [
+        {
+          "name": "Depicts",
+          "control": {
+            "kind": "short-text"
+          },
+          "defaultValue": ""
+        },
+        {
+          "name": "Notes",
+          "control": {
+            "kind": "long-text"
+          },
+          "defaultValue": ""
+        }
+      ]
     },
-    "properties": [
-      { "name": "Depicts", "defaultValue": "" },
-      { "name": "Notes",   "defaultValue": "" }
-    ]
-  },
-  {
-    "id": "prop-structure-fountain",
-    "name": "Fountain",
-    "description": "A decorative or magical fountain.",
-    "tier": "app",
-    "kind": "prop",
-    "category": "structure",
-    "visual": {
-      "texture": "props/structure/fountain.png",
-      "naturalWidth": 2,
-      "naturalHeight": 2
+    {
+      "id": "prop-structure-fountain",
+      "name": "Fountain",
+      "description": "A decorative or magical fountain.",
+      "tier": "app",
+      "kind": "prop",
+      "category": "structure",
+      "visual": {
+        "texture": "props/structure/fountain.png",
+        "naturalWidth": 2,
+        "naturalHeight": 2
+      },
+      "properties": [
+        {
+          "name": "Magical",
+          "control": {
+            "kind": "dropdown",
+            "options": [
+              "no",
+              "yes"
+            ]
+          },
+          "defaultValue": "no"
+        },
+        {
+          "name": "Effect",
+          "control": {
+            "kind": "short-text"
+          },
+          "defaultValue": ""
+        },
+        {
+          "name": "Notes",
+          "control": {
+            "kind": "long-text"
+          },
+          "defaultValue": ""
+        }
+      ]
     },
-    "properties": [
-      { "name": "Magical", "defaultValue": "no" },
-      { "name": "Effect",  "defaultValue": "" },
-      { "name": "Notes",   "defaultValue": "" }
-    ]
-  },
-  {
-    "id": "prop-structure-sarcophagus",
-    "name": "Sarcophagus",
-    "description": "A stone burial coffin.",
-    "tier": "app",
-    "kind": "prop",
-    "category": "structure",
-    "visual": {
-      "texture": "props/structure/sarcophagus.png",
-      "naturalWidth": 1,
-      "naturalHeight": 2
+    {
+      "id": "prop-structure-sarcophagus",
+      "name": "Sarcophagus",
+      "description": "A stone burial coffin.",
+      "tier": "app",
+      "kind": "prop",
+      "category": "structure",
+      "visual": {
+        "texture": "props/structure/sarcophagus.png",
+        "naturalWidth": 1,
+        "naturalHeight": 2
+      },
+      "properties": [
+        {
+          "name": "Occupant",
+          "control": {
+            "kind": "short-text"
+          },
+          "defaultValue": ""
+        },
+        {
+          "name": "Trapped",
+          "control": {
+            "kind": "dropdown",
+            "options": [
+              "no",
+              "yes"
+            ]
+          },
+          "defaultValue": "no"
+        },
+        {
+          "name": "Notes",
+          "control": {
+            "kind": "long-text"
+          },
+          "defaultValue": ""
+        }
+      ]
     },
-    "properties": [
-      { "name": "Occupant", "defaultValue": "" },
-      { "name": "Trapped",  "defaultValue": "no" },
-      { "name": "Notes",    "defaultValue": "" }
-    ]
-  },
-  {
-    "id": "prop-structure-well",
-    "name": "Well",
-    "description": "A stone well.",
-    "tier": "app",
-    "kind": "prop",
-    "category": "structure",
-    "visual": {
-      "texture": "props/structure/well.png",
-      "naturalWidth": 1,
-      "naturalHeight": 1
-    },
-    "properties": [
-      { "name": "Depth",  "defaultValue": "" },
-      { "name": "Notes",  "defaultValue": "" }
-    ]
-  }
-]
+    {
+      "id": "prop-structure-well",
+      "name": "Well",
+      "description": "A stone well.",
+      "tier": "app",
+      "kind": "prop",
+      "category": "structure",
+      "visual": {
+        "texture": "props/structure/well.png",
+        "naturalWidth": 1,
+        "naturalHeight": 1
+      },
+      "properties": [
+        {
+          "name": "Depth",
+          "control": {
+            "kind": "short-text"
+          },
+          "defaultValue": ""
+        },
+        {
+          "name": "Notes",
+          "control": {
+            "kind": "long-text"
+          },
+          "defaultValue": ""
+        }
+      ]
+    }
+  ]
+}

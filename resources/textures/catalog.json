@@ -1,0 +1,98 @@
+[
+  {
+    "id": "stone",
+    "name": "Stone",
+    "surface": "both",
+    "category": "stone",
+    "layoutColor": 4931381,
+    "texture": "stone.jpg",
+    "tileSize": 2,
+    "rotation": 0,
+    "offsetX": 0,
+    "offsetY": 0
+  },
+  {
+    "id": "wood",
+    "name": "Wood",
+    "surface": "both",
+    "category": "wood",
+    "layoutColor": 7031326,
+    "texture": "wood.jpg",
+    "tileSize": 2,
+    "rotation": 0,
+    "offsetX": 0,
+    "offsetY": 0
+  },
+  {
+    "id": "ground",
+    "name": "Ground",
+    "surface": "floor",
+    "category": "earth",
+    "layoutColor": 5917746,
+    "texture": "ground.jpg",
+    "tileSize": 2,
+    "rotation": 0,
+    "offsetX": 0,
+    "offsetY": 0
+  },
+  {
+    "id": "water",
+    "name": "Water",
+    "surface": "floor",
+    "category": "water",
+    "layoutColor": 1731466,
+    "texture": "water.jpg",
+    "tileSize": 4,
+    "rotation": 0,
+    "offsetX": 0,
+    "offsetY": 0
+  },
+  {
+    "id": "lava",
+    "name": "Lava",
+    "surface": "floor",
+    "category": "special",
+    "layoutColor": 13381376,
+    "texture": "lava.jpg",
+    "tileSize": 3,
+    "rotation": 0,
+    "offsetX": 0,
+    "offsetY": 0
+  },
+  {
+    "id": "ice",
+    "name": "Ice",
+    "surface": "floor",
+    "category": "special",
+    "layoutColor": 11393254,
+    "texture": "ice.jpg",
+    "tileSize": 3,
+    "rotation": 0,
+    "offsetX": 0,
+    "offsetY": 0
+  },
+  {
+    "id": "brick",
+    "name": "Brick",
+    "surface": "wall",
+    "category": "stone",
+    "layoutColor": 9193018,
+    "texture": "stone.jpg",
+    "tileSize": 2,
+    "rotation": 0,
+    "offsetX": 0,
+    "offsetY": 0
+  },
+  {
+    "id": "cave",
+    "name": "Cave",
+    "surface": "wall",
+    "category": "earth",
+    "layoutColor": 4868680,
+    "texture": "ground.jpg",
+    "tileSize": 2,
+    "rotation": 0,
+    "offsetX": 0,
+    "offsetY": 0
+  }
+]

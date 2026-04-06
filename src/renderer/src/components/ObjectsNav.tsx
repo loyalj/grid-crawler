@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Text, UnstyledButton } from '@mantine/core'
 import { useMapStore } from '../store/mapStore'
 import {
-  ObjectDefinition, TokenDefinition, ObjectPlacement,
+  ObjectDefinition, TokenDefinition, PropDefinition, ObjectPlacement,
   TokenCategory, PropCategory
 } from '../types/map'
 import { PlaceObjectCommand, RemoveObjectCommand } from '../engine/commands'
@@ -77,6 +77,12 @@ function CatalogBrowser({
           >
             {def.kind === 'token' ? (
               <TokenIcon def={def as TokenDefinition} size={24} />
+            ) : (def as PropDefinition).visual.textureUrl ? (
+              <img
+                src={(def as PropDefinition).visual.textureUrl}
+                alt=""
+                className={classes.propIconThumb}
+              />
             ) : (
               <div className={classes.propIconPlaceholder} />
             )}

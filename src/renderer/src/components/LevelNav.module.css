@@ -135,6 +135,20 @@
   margin-left: 4px;
 }
 
+/* ── Room drag-and-drop ──────────────────────────────────────────────────── */
+
+.leafItem[data-dragging] {
+  opacity: 0.4;
+}
+
+.leafItem[data-drag-over='above'] {
+  border-top-color: var(--mantine-color-teal-5);
+}
+
+.leafItem[data-drag-over='below'] {
+  border-bottom-color: var(--mantine-color-teal-5);
+}
+
 /* ── Add level button ────────────────────────────────────────────────────── */
 
 .addBtn {
